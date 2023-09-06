@@ -103,7 +103,7 @@ def stat(
     df_transposed['sample'] = cell_name
     stat_file = os.path.join(out_dir, "basic_summary.csv")
     if os.path.exists(stat_file):
-        df_transposed.to_csv(stat_file, index=False, header=False, sep='\t', mode='a')
+        df_transposed.to_csv(stat_file, index=False, header=False, sep='\t', mode ='a')
     else:
         df_transposed.to_csv(stat_file, index=False, sep='\t', mode='a')
     return stat_file
@@ -193,8 +193,8 @@ def caculate_methylation_feature(csr_mat,start,end,n_cells,min_cov=3):
     mean_list = []
     for col_idx in range(csr_mat.shape[1]):
         col_data = csr_mat[start-1:end, col_idx].toarray()
-        col_data = col_data[col_data != 0]# 跳过值为0的数据
-        col_data[col_data == -1] = 0# 在计算的时候把-1当成0计算
+        #col_data = col_data[col_data != 0]# 跳过值为0的数据
+        #col_data[col_data == -1] = 0# 在计算的时候把-1当成0计算
         if col_data.size == 0:
             mean_array[col_idx] = np.nan
         if col_data.size < min_cov:
@@ -268,15 +268,24 @@ def _sliding_windows_with_step_size(window_size,step_size,ref,chrom_size = None,
         bin_start = np.array(list(range(0, chrom_length, step_size)))
         bin_end = bin_start + window_size
         bin_end[np.where(bin_end > chrom_length)] = chrom_length
-        chrom_df = pd.DataFrame(dict(bin_start=bin_start, bin_end=bin_end))
+        chrom_df = pd.DataFrame(dict(start=bin_start, end=bin_end))
         chrom_df['chrom'] = chrom
         records.append(chrom_df)
     total_df = pd.concat(records)[['chrom', 'start', 'end']].reset_index(drop=True)
     return total_df
 
 
-def convert_coo_to_csr_with_annotation(coo_mat,chrom,window_size=100000,step_size=5000,feature_file=None):
-    coo_mat = sparse.load_npz(coo_mat)
+
+def convert_coo_to_csr_with_annotation(coo_mat,window_size=100000,step_size=None,feature_file=None):
+    """
+     for coo_matrix, measure methylation level for given bins or genomic features
+    :param coo_mat:
+    :param chrom:
+    :param window_size:
+    :param step_size:
+    :param feature_file:
+    :return:
+    """
     csr_mat = coo_mat.tocsr()
     n_cells = csr_mat.shape[1]
     # # 找到所有非空行的索引
@@ -293,13 +302,13 @@ def convert_coo_to_csr_with_annotation(coo_mat,chrom,window_size=100000,step_siz
     # csr_new = coo_new.tocsr()
     feature_mtx = {}
     if feature_file is not None:
-        for bed_entries in _load_feature(feature_file, chrom):
+        for bed_entries in _load_feature(feature_file):
             chr, start, end, others = bed_entries
             mean = caculate_methylation_feature(csr_mat, start, end, n_cells)
             feature_name = '_'.join([chr, str(start), str(end)])
             feature_mtx[feature_name] = mean
     elif window_size !=0:
-        feature_entries = _sliding_windows_with_step_size(window_size,step_size)
+        feature_entries = _sliding_windows_with_step_size(window_size,step_size,ref=Genome.hg38)
         # 遍历每一行
         for index, row in feature_entries.iterrows():
             chr = row['chrom']
@@ -324,85 +333,30 @@ def _load_feature(feature_file,chrom,file_format = None):
                 if line.startswith("#"):
                     continue
                 value = line.strip().split("\t")
-                print(value)
-                if value[0] in chrom:
+                if value[0] in chrom: #check if the chrom is valid
                     yield value[0],int(value[1]),int(value[2]),value[3:] #返回染色体，起始终止位置和文件的其他列即feature的名称等
 
 
-
-def _region_bin_annotation_chrom_coo_to_csr(csr_mtx,feature,chrom):
-    """
-
-    for coo_matrix, measure methylation level for given bins or genomic features
-
-    :param mtx:
-    :param feature:
-    :param chrom:
-    :return:
-    """
-    # 指定行范围
-    start = 1
-    end = 2
-
-    mean_array = np.zeros(3)
-
-    mean_list = []
-    for col_idx in range(csr_mtx.shape[1]):
-        col_data = csr_mtx[start - 1:end, col_idx].toarray()
-        print(col_data)
-        col_data = col_data[col_data != 0]
-        col_data[col_data == -1] = 0  # 跳过值为-1的数据
-        if col_data.size == 0:
-            mean_array[col_idx] = np.nan
-        else:
-            mean_array[col_idx] = np.mean(col_data)
-
-    print(mean_array)
-    meth_levels_bins.append(np.nan)
-
-
-
-
-    windows = np.arange(start, end, stepsize)
-    smoothed_var = np.empty(windows.shape, dtype=np.float64)
-    for i in prange(windows.shape[0]):
-        pos = windows[i]
-        mean_shrunk_resid = _calc_mean_shrunken_residuals(
-            data_chrom,
-            indices_chrom,
-            indptr_chrom,
-            pos - half_bw,
-            pos + half_bw,
-            smoothed_vals,
-            n_cells,
-            chrom_len,
-        )
-        smoothed_var[i] = np.nanvar(mean_shrunk_resid)
-    return windows, smoothed_var
-
-
-
-
-def _load_csr_into_anndata(csr_mtx,out_dir) -> Path:
-    if os.path.exists(out_dir):
-        return out_dir
-
-    var_df = _generate_chrom_bin_bed_dataframe(chrom_size_path, bin_size)
-    total_matrix = sparse.vstack([sparse.load_npz(path) for path in matrix_paths])
-
-    adata = ad.AnnData(X=total_matrix,
-                    obs=pd.DataFrame([], index=obs_names),
-                    var=var_df[['chrom']],
-                    uns=dict(bin_size=bin_size,
-                             chrom_size_path=chrom_size_path,
-                             mc_type=mc_type,
-                             count_type=count_type,
-                             step_size=step_size,
-                             strandness=strandness))
-    adata.write(output_path,
-                compression=compression,
-                compression_opts=compression_opts)
-    return output_path
+# def _load_csr_into_anndata(coo_mtx,out_dir) -> Path:
+#     if os.path.exists(out_dir):
+#         return out_dir
+#
+#     feature_mtx = convert_coo_to_csr_with_annotation(coo_mtx)
+#     total_matrix = sparse.vstack([sparse.load_npz(path) for path in matrix_paths])
+#
+#     adata = ad.AnnData(X=total_matrix,
+#                     obs=pd.DataFrame([], index=obs_names),
+#                     var=var_df[['chrom']],
+#                     uns=dict(bin_size=bin_size,
+#                              chrom_size_path=chrom_size_path,
+#                              mc_type=mc_type,
+#                              count_type=count_type,
+#                              step_size=step_size,
+#                              strandness=strandness))
+#     adata.write(output_path,
+#                 compression=compression,
+#                 compression_opts=compression_opts)
+#     return output_path
 
 def import_bed_file(
         data_dir: Path,
@@ -452,7 +406,7 @@ def import_bed_file(
     chrom_size = {}
     processes = min(cpu, n_cells)
     print(processes)
-    print('Import starting --- ---  ---')
+    print('Import starting --- --- ' + start_time + '---')
     with Pool(processes=min(cpu, n_cells)) as pool:
         print('process ', n_cells, 'samples with', (min(cpu, n_cells)), 'cpu paraller')
         coo_results = []
@@ -472,62 +426,45 @@ def import_bed_file(
                     ),
                 )
             )
-        print("**** Basic statistics summary has been saved at " + output_dir)
-        # conver to coo_matrix .npz format
-        pool = mp.Pool(processes=cpu)
-        coo_matrix_results=[]
-        for res in coo_results:
-            chrom_sizes = res.get()
-            for chrom, size in chrom_sizes.items():
-                if chrom not in chrom_size:
-                    chrom_size[chrom] = 0
-                chrom_size[chrom] = max(chrom_sizes[chrom], size)
-                coo_matrix_results.append(
-                    pool.apply_async(convert_coo_file_to_matrix, args=(output_dir,chr)))
-            pool.close()
-            pool.join()
+    print("**** Basic statistics summary has been saved at " + output_dir)
+    # conver to coo_matrix .npz format
+    pool = mp.Pool(processes=cpu)
+    coo_matrix_results=[]
+    for res in coo_results:
+        chrom_sizes = res.get()
+        for chrom, size in chrom_sizes.items():
+            if chrom not in chrom_size:
+                chrom_size[chrom] = 0
+            chrom_size[chrom] = max(chrom_sizes[chrom], size)
+            coo_matrix_results.append(
+                pool.apply_async(convert_coo_file_to_matrix, args=(output_dir,chr)))
+        pool.close()
+        pool.join()
 
-        # aggregate all the cells
-        print('Aggregate cells into adata')
-        temp_dir = output_dir
-        total_idx = []
-        total_idy = []
-        total_data = []
-        for path in temp_dir.glob('*hdf'):
-            idy = allc_path_idy[path.name[:-4]]
-            pv = pd.read_hdf(path)
-            if pv.size == 0:
-                # no sig result
-                continue
-            total_idx.append(pv.index.values)
-            total_idy.append([idy] * pv.size)
-            total_data.append(pv.values)
-            # the cell by region matrix
-            (np.concatenate(total_data),
-             (np.concatenate(total_idy), np.concatenate(total_idx))),
-        region_bed = _read_region_bed(bed_path)
-        _data = csr_matrix(
-            shape=(len(allc_path_idy), region_bed.shape[0]))
+    time2 = datetime.datetime()
+    # aggregate all the cells
+    print('Aggregate cells into adata --- ' + time2 + ' ---')
+    temp_dir = output_dir
+    total_idx = []
+    total_idy = []
+    total_data = []
 
-        # save the data as anndata
-        adata = ad.AnnData(_data,
-                                obs=pd.DataFrame([], index=allc_paths.index),
-                                var=region_bed)
-        adata.X = adata.X.astype('float16')
-        if str(output_prefix)[-5:] in {'.mcad', '.h5ad'}:
-            output_h5ad_path = output_prefix
-        else:
-            output_h5ad_path = f'{output_prefix}.mcad'
-        adata.write_h5ad(pathlib.Path(output_h5ad_path))
+    # conver to coo_matrix .npz format
+    pool = mp.Pool(processes=cpu)
+    feature_mtx_results = []
 
-        cleanup = True
-        # remove temp
-        if cleanup:
-            subprocess.run(['rm', '-rf', str(temp_dir)])
-        return
+    matrix =  sparse.vstack([sparse.load_npz(path) for path in temp_dir.glob('*npz')])
+    for coo in temp_dir.glob('*npz'):
+        feature_mtx_results.append(pool.apply_async(convert_coo_to_csr_with_annotation, args=(coo)))
 
+    matrix = np.vstack([feature for feature in feature_mtx_results])
+    adata = ad.AnnData(matrix,obs=pd.DataFrame(index=cell_id))
 
-
-
-
+    adata.uns['omic'] = 'methylation'
+    #
+    # cleanup = True
+    # # remove temp
+    # if cleanup:
+    #     subprocess.run(['rm', '-rf', str(temp_dir)])
+    return
 
