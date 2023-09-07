@@ -21,12 +21,21 @@ from typing import Union
 import anndata as ad
 import subprocess
 import pathlib
-from .._genome import Genome
+from .._genome import Genome, hg38
 import collections
+import click
+import time
 
 __all__ = ['import_bed_file','convert_coo_file_to_matrix']
 
+def echo(*args, **kwargs):
+    click.echo(*args, **kwargs, err=True)
+    return
 
+
+def secho(*args, **kwargs):
+    click.secho(*args, **kwargs, err=True)
+    return
 
 def find_files_with_suffix(path, suffix):
     matching_files = []
@@ -92,6 +101,7 @@ def filter_cells(
 def stat(
         cov_df: str,
         cell_name: str,
+        cell_id: str,
         out_dir: Path,
 ):
     sta_df = cov_df.groupby('mc_class').agg({"methylated": "sum", "mc_class": "count", "total": "sum"})
@@ -101,16 +111,17 @@ def stat(
     # 将列名修改为需要的格式
     df_transposed.columns = [f'{col}_{row}' for row in sta_df.index for col in sta_df.columns]
     df_transposed['sample'] = cell_name
+    df_transposed['sample_id'] = cell_id
     stat_file = os.path.join(out_dir, "basic_summary.csv")
     if os.path.exists(stat_file):
-        df_transposed.to_csv(stat_file, index=False, header=False, sep='\t', mode ='a')
+        df_transposed.to_csv(stat_file, index=False, header=False, sep=',', mode ='a')
     else:
-        df_transposed.to_csv(stat_file, index=False, sep='\t', mode='a')
+        df_transposed.to_csv(stat_file, index=False, sep=',', mode='a')
     return stat_file
 
 
 def _iter_chunks(data_dir, chrom):
-    print(os.path.join(data_dir, f"chr{chrom}_chunk*.coo"))
+    # print(os.path.join(data_dir, f"{chrom}_chunk*.coo"))
     chunk_paths = glob.glob(os.path.join(data_dir, "{}_chunk*.coo".format(chrom)))
     for chunk_path in sorted(chunk_paths):
         chunk = pd.read_csv(chunk_path, delimiter=",", header=None).values  # array
@@ -143,69 +154,71 @@ def _convert_cov_to_coo(
     :param round_sites:
     :return:
     """
-    print('step1 : begin build coo matrix ----- \n')
-    print('pipeline is ' +pipeline+'\n')
+    try:
+
+        print('step1 : begin build coo matrix ----- \n')
+        print('pipeline is ' +pipeline+'\n')
 
 
-    if out_file is None:
-        name = os.path.basename(cov_file)
-        sample_name = os.path.splitext(name)[0]
-        print('processed cell ', sample_name, '...')
+        if out_file is None:
+            name = os.path.basename(cov_file)
+            sample_name = os.path.splitext(name)[0]
+            print('processed cell ', sample_name, '...\n')
 
-    cov_df = pd.read_csv(cov_file, sep='\t', header=None,
-                         names=['chr', 'strand', 'pos', 'mc_class', 'mc_context', 'mc_level', 'methylated',
-                                'total'])  # usecols=['chr','pos','mc_level','total']
-    cov_df = cov_df.sort_values(['chr', 'pos'])
-    chrom_sizes = {}
-    current_chrom = None
-    current_chunk = None
-    current_file = None
-    # record qc into stats file
-    stat_file = stat(cov_df, sample_name, output_dir)
+        cov_df = pd.read_csv(cov_file, sep='\t', header=None,
+                             names=['chr', 'strand', 'pos', 'mc_class', 'mc_context', 'mc_level', 'methylated',
+                                    'total'])  # usecols=['chr','pos','mc_level','total']
+        cov_df = cov_df.sort_values(['chr', 'pos'])
+        chrom_sizes = {}
+        current_chrom = None
+        current_chunk = None
+        current_file = None
+        # record qc into stats file
+        stat_file = stat(cov_df, sample_name, cell_id,output_dir)
 
-    # 测试用，不测试的时候删除
-    valid_values = ["chr1", "chr2"]
+        # 测试用，不测试的时候删除
+        valid_values = ["chr1", "chr2"]
 
-    for i, row in cov_df.iterrows():
-        chrom, pos, mc_level = row['chr'], row['pos'], row['mc_level']
-        chunk = int(pos // chunksize)
-        if chrom in valid_values:  # 测试用，不测试删除这个判断
-            if chrom != current_chrom or chunk != current_chunk:
-                current_chrom = chrom
-                current_chunk = chunk
-                if current_file:
-                    current_file.close()  # 每次结束一个染色体的一个chunk区域后要关闭文件
-                filename = '{}_chunk{:07d}.coo'.format(current_chrom, current_chunk)
-                current_file = open(os.path.join(output_dir, filename), 'a')
-                if chrom not in chrom_sizes:
-                    chrom_sizes[chrom] = 0
-            current_file.write('{}, {} ,{}\n'.format(pos, cell_id, mc_level))
-            if pos > chrom_sizes[current_chrom]:
-                chrom_sizes[current_chrom] = pos  # 记录的是测到的最大碱基的位置不是真正的基因组位置
-    if current_file:
-        current_file.close()
-    return chrom_sizes
+        for i, row in cov_df.iterrows():
+            chrom, pos, mc_level = row['chr'], row['pos'], row['mc_level']
+            chunk = int(pos // chunksize)
+            if chrom in valid_values:  # 测试用，不测试删除这个判断
+                if chrom != current_chrom or chunk != current_chunk:
+                    current_chrom = chrom
+                    current_chunk = chunk
+                    if current_file:
+                        current_file.close()  # 每次结束一个染色体的一个chunk区域后要关闭文件
+                    filename = '{}_chunk{:07d}.coo'.format(current_chrom, current_chunk)
+                    current_file = open(os.path.join(output_dir, filename), 'a')
+                    if chrom not in chrom_sizes:
+                        chrom_sizes[chrom] = 0
+                current_file.write('{}, {} ,{}\n'.format(pos, cell_id, mc_level))
+                if pos > chrom_sizes[current_chrom]:
+                    chrom_sizes[current_chrom] = pos  # 记录的是测到的最大碱基的位置不是真正的基因组位置
+        if current_file:
+            current_file.close()
+        return chrom_sizes
+    except Exception as e:
+        print('Wrong')
+        return None
 
 
-def caculate_methylation_feature(csr_mat,start,end,n_cells,min_cov=3):
+def caculate_methylation_feature(csr_mat, start, end, n_cells, min_cov=0):
     mean_array = np.zeros(n_cells)
     # 计算每列的平均值
     mean_list = []
     for col_idx in range(csr_mat.shape[1]):
-        col_data = csr_mat[start-1:end, col_idx].toarray()
-        #col_data = col_data[col_data != 0]# 跳过值为0的数据
-        #col_data[col_data == -1] = 0# 在计算的时候把-1当成0计算
-        if col_data.size == 0:
-            mean_array[col_idx] = np.nan
-        if col_data.size < min_cov:
-            mean_array[col_idx] = np.nan #如果一个feature覆盖的细胞数量少于多少就删除
+        col_data = csr_mat[start - 1:end, col_idx].toarray()
+        col_data = col_data[col_data != 0]# 跳过值为0的数据
+        col_data[col_data == -1] = 0# 在计算的时候把-1当成0计算
+        if col_data.size == 0 or col_data.size < min_cov:
+            mean_array[col_idx] = np.NaN
         else:
             mean_array[col_idx] = np.mean(col_data)
     return mean_array
 
 
 def convert_coo_file_to_matrix(data_dir, chrom):
-    print("convet file into coo_matrix")
     coo_matrix_path = os.path.join(data_dir, "{}_coo_matrix.npz".format(chrom))
     chunk_row = []
     chunk_col = []
@@ -215,7 +228,6 @@ def convert_coo_file_to_matrix(data_dir, chrom):
         chunk_row.extend(file_rows.astype(int))
         chunk_col.extend(file_cols.astype(int))
         chunk_data.extend(file_data)
-    print(chunk_row)
     coo_matrix_result = coo_matrix((chunk_data, (chunk_row, chunk_col)))
     sparse.save_npz(coo_matrix_path, coo_matrix_result)
     return coo_matrix_path, coo_matrix_result
@@ -233,7 +245,7 @@ def _load_chrom_size_file(chrom_file,remove_chr_list=None):
     pass
 
 
-def _sliding_windows_with_step_size(window_size,step_size,ref,chrom_size = None,chrom_file = None):
+def _sliding_windows_with_step_size(window_size, step_size, ref, chrom_size=None, chrom_file=None):
     """
 
     :param window_size:
@@ -261,7 +273,7 @@ def _sliding_windows_with_step_size(window_size,step_size,ref,chrom_size = None,
         if ref is not None:
             chrom_size_dict = ref.chrom_sizes
     else:
-        chrom_size_dict = _load_chrom_size_file(chrom_file) # user defined reference, especially for other species
+        chrom_size_dict = _load_chrom_size_file(chrom_file)  # user defined reference, especially for other species
 
     records = []
     for chrom, chrom_length in chrom_size_dict.items():
@@ -275,8 +287,36 @@ def _sliding_windows_with_step_size(window_size,step_size,ref,chrom_size = None,
     return total_df
 
 
+def _process_chromosome(temp_dir, chrom_data):
+    temp_dir = Path(temp_dir)
+    chrom, chrom_records = chrom_data
+    # 使用 glob 模块查找文件
+    matching_files = glob.glob(os.path.join(temp_dir, f'{chrom}*npz'))
+    if not matching_files:
+        print(f"No matching files found for {chrom}. Returning empty result.")
+        return {}  # 返回空的结果，一个空的字典
+    else:
+        secho(f"\n merge {chrom} coo_matrix and bin it ", fg="green")
+        # for coo_path in sorted(glob(os.path.join(temp_dir, "chr1*.npz"))):
+        coo_mat = sparse.vstack([sparse.load_npz(path) for path in temp_dir.glob(f'{chrom}*npz')])
+        coo_mat.data = np.where(coo_mat.data == 0, -1,
+                                coo_mat.data)  # change all zero to -1 which means unmethylated for calculating
+        csr_mat = coo_mat.tocsr()
+        n_cells = csr_mat.shape[1]
+        secho(f"\n merge {chrom} coo_matrix and bin it for {n_cells} cell ", fg="green")
+        # 遍历每一行
+        feature_mtx = {}
+        for index, row in chrom_records.iterrows():
+            chr = row['chrom']
+            start = row['start']
+            end = row['end']
+            mean = caculate_methylation_feature(csr_mat, start, end, n_cells)
+            feature_name = f"{chr}_{start}_{end}"
+            feature_mtx[feature_name] = mean
+        print(f'merge finished for {chrom}')
+        return feature_mtx
 
-def convert_coo_to_csr_with_annotation(coo_mat,window_size=100000,step_size=None,feature_file=None):
+def convert_coo_to_csr_with_imputation(coo_mat,window_size=100000,step_size=None,feature_file=None):
     """
      for coo_matrix, measure methylation level for given bins or genomic features
     :param coo_mat:
@@ -358,6 +398,44 @@ def _load_feature(feature_file,chrom,file_format = None):
 #                 compression_opts=compression_opts)
 #     return output_path
 
+
+def convert_coo_to_csr_without_imputation(temp_dir,window_size=100000,step_size=None,feature_file=None,out_file=None,cpu=5,ref=hg38):
+    adata = ad.AnnData() if out_file is None else ad.AnnData(filename=out_file)
+    feature = _sliding_windows_with_step_size(100000, 100000, ref)
+    # all chromosome or defined chromosome
+    chrom_data = [(chrom, feature[feature['chrom'] == chrom]) for chrom in feature['chrom'].unique()]
+    pool = mp.Pool(processes=min(cpu, len(chrom_data)))
+    # 将染色体数据分组传递给处理函数
+    results = []
+    print("开始执行注释合并")
+    start_time = time.time()
+    for i in range(len(chrom_data)):
+        chrom = chrom_data[i]
+        results.append(pool.apply_async(_process_chromosome, args=(temp_dir, chrom)))
+    # 关闭线程池
+    pool.close()
+    pool.join()
+    # # 将处理结果合并成一个 DataFrame
+    result_df = pd.concat([pd.DataFrame.from_dict(r.get()) for r in results], ignore_index=True)
+    print("注释合并进程结束耗时%s" % (time.time() - start_time))
+
+    # 步骤 1: 将 DataFrame 转换为 CSR 矩阵
+    # 步骤 1: 填充 DataFrame 中的 NaN 值
+    df_filled = result_df.fillna(0)  # 这里将 NaN 填充为你希望的缺失值填充值（例如 0）
+    csr_matrix = sparse.csr_matrix(df_filled.values)
+    # 保存行名和列名
+    row_names = result_df.index.tolist()
+    col_names = result_df.columns.tolist()
+    # 步骤 2: 存储 CSR 矩阵到 AnnData 对象
+    # `var` must have number of columns of `X` (2490), but has 30894 rows.
+
+    adata = ad.AnnData(X=csr_matrix, var=col_names)
+
+    # 步骤 3: 将 DataFrame 保存为文本文件
+    result_df.to_csv('test_chr1.txt', sep='\t', index=False)
+    # 保存 AnnData 对象到 HDF5 文件（如果需要）
+    adata.write('test_anndata.h5ad')
+
 def import_bed_file(
         data_dir: Path,
         output_dir: Path,
@@ -396,9 +474,7 @@ def import_bed_file(
     if not os.path.exists(output_dir):
         os.makedirs(output_dir)
 
-    adata = ad.AnnData() if file is None else ad.AnnData(filename=file)
     start_time = datetime.datetime.now()
-    print(suffix)
     samples = find_files_with_suffix(data_dir, suffix)
     print(samples)
     n_cells = len(samples)
@@ -406,65 +482,43 @@ def import_bed_file(
     chrom_size = {}
     processes = min(cpu, n_cells)
     print(processes)
-    print('Import starting --- --- ' + start_time + '---')
-    with Pool(processes=min(cpu, n_cells)) as pool:
-        print('process ', n_cells, 'samples with', (min(cpu, n_cells)), 'cpu paraller')
-        coo_results = []
-        for cell_id, cov_file in enumerate(samples):
-            # save cell id and name table
-            # with open(output_dir + "file_list.csv", 'w') as f:
-            #     f.write(f"{cell_n}\t{cov_file}\n")
-            print(cov_file)
-            coo_results.append(
-                pool.apply_async(
-                    _convert_cov_to_coo,
-                    args=(
-                        output_dir,
-                        cov_file,
-                        cell_id,
-                        pipeline,
-                    ),
-                )
-            )
+    time1 = time.time()
+    print('Import starting --- --- ' + str(start_time) + '---')
+    print('process ', n_cells, 'samples with', (min(cpu, n_cells)), 'cpu paraller')
+    # chroms = []
+    # pool = mp.Pool(processes=min(cpu, n_cells))
+    # for cell_id, cov_file in enumerate(samples):
+    #     # save cell id and name table
+    #     # with open(output_dir + "file_list.csv", 'w') as f:
+    #     #     f.write(f"{cell_n}\t{cov_file}\n")
+    #     chroms.append(
+    #         pool.apply_async(
+    #             _convert_cov_to_coo,
+    #             args=(
+    #                 output_dir,
+    #                 cov_file,
+    #                 cell_id,
+    #                 pipeline,
+    #             ),
+    #         )
+    #     )
+    # pool.close()
+    # pool.join()
+    print('Conver coo to matrix at--- --- ' + str(datetime.datetime.now()) + '---')
+    # conver to coo_matrix .npz format
+    pool = mp.Pool(processes=cpu)
+    coo_matrix_results = []
+    for chrom, size in hg38.chrom_sizes.items():
+        coo_matrix_results.append(
+            pool.apply_async(convert_coo_file_to_matrix, args=(output_dir,chrom)))
+    pool.close()
+    pool.join()
+    print('Conver coo to matrix at--- --- ' + str(datetime.datetime.now()) + '---')
     print("**** Basic statistics summary has been saved at " + output_dir)
-    # conver to coo_matrix .npz format
-    pool = mp.Pool(processes=cpu)
-    coo_matrix_results=[]
-    for res in coo_results:
-        chrom_sizes = res.get()
-        for chrom, size in chrom_sizes.items():
-            if chrom not in chrom_size:
-                chrom_size[chrom] = 0
-            chrom_size[chrom] = max(chrom_sizes[chrom], size)
-            coo_matrix_results.append(
-                pool.apply_async(convert_coo_file_to_matrix, args=(output_dir,chr)))
-        pool.close()
-        pool.join()
-
-    time2 = datetime.datetime()
+    print('Convet coo end --- --- ' + str(time.time() - time1) + '---')
+    time3 = datetime.datetime.now()
     # aggregate all the cells
-    print('Aggregate cells into adata --- ' + time2 + ' ---')
+    print('Aggregate cells into adata --- ' + str(time3) + ' ---')
     temp_dir = output_dir
-    total_idx = []
-    total_idy = []
-    total_data = []
-
-    # conver to coo_matrix .npz format
-    pool = mp.Pool(processes=cpu)
-    feature_mtx_results = []
-
-    matrix =  sparse.vstack([sparse.load_npz(path) for path in temp_dir.glob('*npz')])
-    for coo in temp_dir.glob('*npz'):
-        feature_mtx_results.append(pool.apply_async(convert_coo_to_csr_with_annotation, args=(coo)))
-
-    matrix = np.vstack([feature for feature in feature_mtx_results])
-    adata = ad.AnnData(matrix,obs=pd.DataFrame(index=cell_id))
-
-    adata.uns['omic'] = 'methylation'
-    #
-    # cleanup = True
-    # # remove temp
-    # if cleanup:
-    #     subprocess.run(['rm', '-rf', str(temp_dir)])
-    return
+    convert_coo_to_csr_without_imputation(temp_dir,cpu=cpu)
 

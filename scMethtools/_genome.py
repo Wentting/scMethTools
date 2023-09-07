@@ -5,8 +5,6 @@
 > Created Time: 2023年08月21日
 
 """
-from snapatac2.datasets import datasets
-from pooch import Decompress
 
 class Genome:
     def __init__(self, chrom_sizes, annotation_filename, fasta = None) -> None:
@@ -14,11 +12,11 @@ class Genome:
         self._annotation_filename = annotation_filename
         self._fasta_filename = fasta
 
-    def fetch_annotations(self):
-        return datasets().fetch(self._annotation_filename)
-
-    def fetch_fasta(self):
-        return datasets().fetch(self._fasta_filename, processor = Decompress(method = "gzip"))
+    # def fetch_annotations(self):
+    #     return datasets().fetch(self._annotation_filename)
+    #
+    # def fetch_fasta(self):
+    #     return datasets().fetch(self._fasta_filename, processor = Decompress(method = "gzip"))
 
 GRCh37 = Genome(
     {

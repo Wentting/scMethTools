@@ -210,8 +210,14 @@ def main():
     df_filled = result_df.fillna(0)  # 这里将 NaN 填充为你希望的缺失值填充值（例如 0）
     csr_matrix = sparse.csr_matrix(df_filled.values)
 
+    # 保存行名和列名
+    row_names = result_df.index.tolist()
+    col_names = result_df.columns.tolist()
+
     # 步骤 2: 存储 CSR 矩阵到 AnnData 对象
-    adata = ad.AnnData(X=csr_matrix)
+    #`var` must have number of columns of `X` (2490), but has 30894 rows.
+
+    adata = ad.AnnData(X=csr_matrix,obs=,var=feature)
 
     # 步骤 3: 将 DataFrame 保存为文本文件
     result_df.to_csv('test_chr1.txt', sep='\t', index=False)
@@ -219,11 +225,22 @@ def main():
     # 保存 AnnData 对象到 HDF5 文件（如果需要）
     adata.write('test_anndata.h5ad')
 
+    # 1. 从另一个文件中读取包含所有数据的DataFrame
+    # 假设您的数据存储在一个名为 'data.csv' 的CSV文件中，且该文件包含多列数据，包括 'id' 列作为标识符
+    data_df = pd.read_csv('data.csv')
 
-    if feature_names != []:
-        adata = ad.AnnData(matrix, obs=pd.DataFrame(index=cell_names),  var=pd.DataFrame(index=feature_names))
-    else:
-        adata = ad.AnnData(matrix, obs=pd.DataFrame(index=cell_names))
+    # 2. 使用ID列表和DataFrame创建映射字典
+    id_to_data = {}
+    for sample_id in row_names:
+        data_row = data_df[data_df['id'] == sample_id]
+        if not data_row.empty:
+            id_to_data[sample_id] = data_row
+
+    # 3. 创建一个AnnData对象并将数据添加到obs中
+    # 假设您已经有一个名为 'adata' 的AnnData对象
+    for sample_id, data_row in id_to_data.items():
+        adata.obs[f'ID_{sample_id}'] = data_row.iloc[0]  # 将整行数据添加到obs中，以ID为列名
+
 
 if __name__ == "__main__":
     main()
