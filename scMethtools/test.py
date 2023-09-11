@@ -166,7 +166,7 @@ def main():
             "chrY": 57227415
         },
         "gencode_v41_GRCh38.gff3.gz",
-        "gencode_v41_GRCh38.fa.gz",
+        "gencode_v41_GRCh38.fa.gz",test_chr1.txt
     )
     hg38 = GRCh38
     cpu = 5

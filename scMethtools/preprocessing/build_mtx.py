@@ -13,6 +13,8 @@ import glob
 import multiprocessing as mp
 from multiprocessing import Pool
 from pathlib import Path
+
+from anndata import ImplicitModificationWarning
 from scipy.sparse import coo_matrix
 from scipy import sparse
 import datetime as datetime
@@ -25,6 +27,7 @@ from .._genome import Genome, hg38
 import collections
 import click
 import time
+import warnings
 
 __all__ = ['import_bed_file','convert_coo_file_to_matrix']
 
@@ -104,6 +107,7 @@ def stat(
         cell_id: str,
         out_dir: Path,
 ):
+    print("*****summary file generate *****")
     sta_df = cov_df.groupby('mc_class').agg({"methylated": "sum", "mc_class": "count", "total": "sum"})
     sta_df['overall_mc_level'] = sta_df['methylated'] / sta_df['total']
     # 使用 stack() 函数将 DataFrame 转换为单列的 Series 对象
@@ -113,10 +117,14 @@ def stat(
     df_transposed['sample'] = cell_name
     df_transposed['sample_id'] = cell_id
     stat_file = os.path.join(out_dir, "basic_summary.csv")
-    if os.path.exists(stat_file):
-        df_transposed.to_csv(stat_file, index=False, header=False, sep=',', mode ='a')
-    else:
-        df_transposed.to_csv(stat_file, index=False, sep=',', mode='a')
+    try:
+        if os.path.exists(stat_file):
+            df_transposed.to_csv(stat_file, index=False, header=False, sep=',', mode ='a')
+        else:
+            df_transposed.to_csv(stat_file, index=False, sep=',', mode='a')
+    except PermissionError:
+        print(f"文件 '{stat_file}' 正在被另一个进程锁定。等待关闭后重试...")
+    print('*****summary file end ****')
     return stat_file
 
 
@@ -154,53 +162,50 @@ def _convert_cov_to_coo(
     :param round_sites:
     :return:
     """
-    try:
-
-        print('step1 : begin build coo matrix ----- \n')
-        print('pipeline is ' +pipeline+'\n')
 
 
-        if out_file is None:
-            name = os.path.basename(cov_file)
-            sample_name = os.path.splitext(name)[0]
-            print('processed cell ', sample_name, '...\n')
+    print('step1 : begin build coo matrix ----- \n')
+    print('pipeline is ' +pipeline+'\n')
 
-        cov_df = pd.read_csv(cov_file, sep='\t', header=None,
-                             names=['chr', 'strand', 'pos', 'mc_class', 'mc_context', 'mc_level', 'methylated',
-                                    'total'])  # usecols=['chr','pos','mc_level','total']
-        cov_df = cov_df.sort_values(['chr', 'pos'])
-        chrom_sizes = {}
-        current_chrom = None
-        current_chunk = None
-        current_file = None
-        # record qc into stats file
-        stat_file = stat(cov_df, sample_name, cell_id,output_dir)
 
-        # 测试用，不测试的时候删除
-        valid_values = ["chr1", "chr2"]
+    if out_file is None:
+        name = os.path.basename(cov_file)
+        sample_name = os.path.splitext(name)[0]
+        print('processed cell ', sample_name, '...\n')
 
-        for i, row in cov_df.iterrows():
-            chrom, pos, mc_level = row['chr'], row['pos'], row['mc_level']
-            chunk = int(pos // chunksize)
-            if chrom in valid_values:  # 测试用，不测试删除这个判断
-                if chrom != current_chrom or chunk != current_chunk:
-                    current_chrom = chrom
-                    current_chunk = chunk
-                    if current_file:
-                        current_file.close()  # 每次结束一个染色体的一个chunk区域后要关闭文件
-                    filename = '{}_chunk{:07d}.coo'.format(current_chrom, current_chunk)
-                    current_file = open(os.path.join(output_dir, filename), 'a')
-                    if chrom not in chrom_sizes:
-                        chrom_sizes[chrom] = 0
-                current_file.write('{}, {} ,{}\n'.format(pos, cell_id, mc_level))
-                if pos > chrom_sizes[current_chrom]:
-                    chrom_sizes[current_chrom] = pos  # 记录的是测到的最大碱基的位置不是真正的基因组位置
-        if current_file:
-            current_file.close()
-        return chrom_sizes
-    except Exception as e:
-        print('Wrong')
-        return None
+    cov_df = pd.read_csv(cov_file, sep='\t', header=None,
+                         names=['chr', 'strand', 'pos', 'mc_class', 'mc_context', 'mc_level', 'methylated',
+                                'total'])  # usecols=['chr','pos','mc_level','total']
+    cov_df = cov_df.sort_values(['chr', 'pos'])
+    chrom_sizes = {}
+    current_chrom = None
+    current_chunk = None
+    current_file = None
+    # record qc into stats file
+    stat_file = stat(cov_df, sample_name, cell_id,output_dir)
+
+    # 测试用，不测试的时候删除
+    valid_values = ["chr1", "chr2"]
+    print("enter...")
+    for i, row in cov_df.iterrows():
+        chrom, pos, mc_level = row['chr'], row['pos'], row['mc_level']
+        chunk = int(pos // chunksize)
+        if chrom in valid_values:  # 测试用，不测试删除这个判断
+            if chrom != current_chrom or chunk != current_chunk:
+                current_chrom = chrom
+                current_chunk = chunk
+                if current_file:
+                    current_file.close()  # 每次结束一个染色体的一个chunk区域后要关闭文件
+                filename = '{}_chunk{:07d}.coo'.format(current_chrom, current_chunk)
+                current_file = open(os.path.join(output_dir, filename), 'a')
+                if chrom not in chrom_sizes:
+                    chrom_sizes[chrom] = 0
+            current_file.write('{}, {} ,{}\n'.format(pos, cell_id, mc_level))
+            if pos > chrom_sizes[current_chrom]:
+                chrom_sizes[current_chrom] = pos  # 记录的是测到的最大碱基的位置不是真正的基因组位置
+    if current_file:
+        current_file.close()
+    return chrom_sizes
 
 
 def caculate_methylation_feature(csr_mat, start, end, n_cells, min_cov=0):
@@ -416,7 +421,9 @@ def convert_coo_to_csr_without_imputation(temp_dir,window_size=100000,step_size=
     pool.close()
     pool.join()
     # # 将处理结果合并成一个 DataFrame
-    result_df = pd.concat([pd.DataFrame.from_dict(r.get()) for r in results], ignore_index=True)
+    #按行合并
+    # result_df = pd.concat([pd.DataFrame.from_dict(r.get()) for r in results], axis=1, ignore_index=True)
+    result_df = pd.concat([pd.DataFrame.from_dict(r.get()) for r in results], axis=1)
     print("注释合并进程结束耗时%s" % (time.time() - start_time))
 
     # 步骤 1: 将 DataFrame 转换为 CSR 矩阵
@@ -424,17 +431,24 @@ def convert_coo_to_csr_without_imputation(temp_dir,window_size=100000,step_size=
     df_filled = result_df.fillna(0)  # 这里将 NaN 填充为你希望的缺失值填充值（例如 0）
     csr_matrix = sparse.csr_matrix(df_filled.values)
     # 保存行名和列名
-    row_names = result_df.index.tolist()
-    col_names = result_df.columns.tolist()
+    row_names = result_df.columns.tolist()
+    col_names = result_df.index.tolist()
     # 步骤 2: 存储 CSR 矩阵到 AnnData 对象
     # `var` must have number of columns of `X` (2490), but has 30894 rows.
-
-    adata = ad.AnnData(X=csr_matrix, var=col_names)
-
     # 步骤 3: 将 DataFrame 保存为文本文件
-    result_df.to_csv('test_chr1.txt', sep='\t', index=False)
+    result_df.to_csv(f'{temp_dir}/test_chr1.txt', sep='\t', index=False)
+
+    data_df = pd.read_csv('D://Test/GSE56789/temp/my.csv')
+    # df_sorted = data_df[data_df['sample_id'].isin(col_names)].sort_values(by='sample_id')
+    df_sorted = data_df.query('sample_id in @col_names').sort_values(by='sample_id')
+    # 将整数索引转换为字符串
+    # 将每个元素转换为字符串
+    var_df = pd.DataFrame({'feature_name': row_names})
+    adata = ad.AnnData(X=csr_matrix, obs=df_sorted, var=var_df)
+    adata.obs.index = adata.obs.index.astype(str)
+
     # 保存 AnnData 对象到 HDF5 文件（如果需要）
-    adata.write('test_anndata.h5ad')
+    adata.write(f'{temp_dir}/result_anndata.h5')
 
 def import_bed_file(
         data_dir: Path,
@@ -477,14 +491,14 @@ def import_bed_file(
     start_time = datetime.datetime.now()
     samples = find_files_with_suffix(data_dir, suffix)
     print(samples)
-    n_cells = len(samples)
-    chunksize = 10000
-    chrom_size = {}
-    processes = min(cpu, n_cells)
-    print(processes)
-    time1 = time.time()
-    print('Import starting --- --- ' + str(start_time) + '---')
-    print('process ', n_cells, 'samples with', (min(cpu, n_cells)), 'cpu paraller')
+    # n_cells = len(samples)
+    # chunksize = 10000
+    # chrom_size = {}
+    # processes = min(cpu, n_cells)
+    # print(processes)
+    # time1 = time.time()
+    # print('Import starting --- --- ' + str(start_time) + '---')
+    # print('process ', n_cells, 'samples with', (min(cpu, n_cells)), 'cpu paraller')
     # chroms = []
     # pool = mp.Pool(processes=min(cpu, n_cells))
     # for cell_id, cov_file in enumerate(samples):
@@ -504,18 +518,18 @@ def import_bed_file(
     #     )
     # pool.close()
     # pool.join()
-    print('Conver coo to matrix at--- --- ' + str(datetime.datetime.now()) + '---')
-    # conver to coo_matrix .npz format
-    pool = mp.Pool(processes=cpu)
-    coo_matrix_results = []
-    for chrom, size in hg38.chrom_sizes.items():
-        coo_matrix_results.append(
-            pool.apply_async(convert_coo_file_to_matrix, args=(output_dir,chrom)))
-    pool.close()
-    pool.join()
-    print('Conver coo to matrix at--- --- ' + str(datetime.datetime.now()) + '---')
-    print("**** Basic statistics summary has been saved at " + output_dir)
-    print('Convet coo end --- --- ' + str(time.time() - time1) + '---')
+    # print('Conver coo to matrix at--- --- ' + str(datetime.datetime.now()) + '---')
+    # # conver to coo_matrix .npz format
+    # pool = mp.Pool(processes=cpu)
+    # coo_matrix_results = []
+    # for chrom, size in hg38.chrom_sizes.items():
+    #     coo_matrix_results.append(
+    #         pool.apply_async(convert_coo_file_to_matrix, args=(output_dir,chrom)))
+    # pool.close()
+    # pool.join()
+    # print('Conver coo to matrix at--- --- ' + str(datetime.datetime.now()) + '---')
+    # print("**** Basic statistics summary has been saved at " + output_dir)
+    # print('Convet coo end --- --- ' + str(time.time() - time1) + '---')
     time3 = datetime.datetime.now()
     # aggregate all the cells
     print('Aggregate cells into adata --- ' + str(time3) + ' ---')
