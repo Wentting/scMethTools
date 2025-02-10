@@ -1,0 +1,86 @@
+input:
+  inputdir: /xtdisk/methbank_baoym/zongwt/single/upstream/test_raw
+  groupfile: "group.txt"
+
+output:
+  outputdir: /xtdisk/methbank_baoym/zongwt/single/upstream/script/tmp/test
+
+mode: "paired"
+method: "scBS-seq"
+
+tools:
+  fastqc: /p300s/baoym_group/zongwt/zongwt/software/FastQC/fastqc
+  fastq-dump: /p300s/baoym_group/zongwt/zongwt/software/sratoolkit.2.10.9-centos_linux64/bin/fastq-dump
+  trim_galore: /p300s/baoym_group/zongwt/zongwt/software/TrimGalore-0.6.1/trim_galore
+  bismark: /xtdisk/methbank_baoym/zhangmch/software/Bismark-0.22.3/
+  cutadapt: /p300s/baoym_group/zongwt/zongwt/software/miniconda3/envs/py39/bin/cutadapt
+  samtools: /software/biosoft/software/samtools1.9/bin/samtools
+
+reference:
+  species: "human"
+  #must be a directory to the genome index, not a file
+  genome: /p300s/baoym_group/zongwt/zongwt/genome/mm10_lambda_sort/
+
+download:
+  enabled: false
+  retry: 3
+  extract_threads: 8
+
+fastqdump:
+  enabled: True
+  threads: 8
+  param: "--split-3 --gzip"
+
+fastqc:
+  enabled: true
+  threads: 8
+
+trim:
+  enabled: true
+  threads: 8
+  param: "--max_n 100 --stringency 3 -e 0 --gzip --phred33 -q 20 --clip_R1 6 --clip_R2 6 --length 50"
+
+#这一步时间很长，是整个流程的瓶颈
+mapping:
+  enabled: true
+  #启动 NTHREADS 并行搜索线程（默认值：1）。线程将在单独的处理器/核心上运行，并在解析读取和输出对齐时进行同步。搜索对齐是高度并行的，并且加速接近线性。注意：目前尚不清楚这种速度提升是否也转化为 Bismark 速度的提升，因为它同时运行多个 Bowtie 2 实例！增加会-p增加 Bowtie 2 的内存占用。例如，当与人类基因组索引对齐时，-p从 1 增加到 8 会使内存占用增加几百兆字节（对于每个 Bowtie 2 实例！）。此选项仅在 Bowtie 与 pthreads 库链接时可用（即，如果在构建时未指定 BOWTIE_PTHREADS=0）。
+  threads: 2
+  #--parallel <int> （也可能是 --multicore)。设置要同时运行的 Bismark 并行实例数。如果系统资源充足，这是一个加快比对过程的可行选择（我们观察到在--multicore 8测试中速度接近线性增长）
+  #注意，典型的 Bismark 运行已经使用多个核心（Bismark 本身，Bowtie/Bowtie2、Samtools、gzip 等的 2 或 4 个线程...）因此--parallel 4例如 GRCm38 小鼠基因组可能会使用约 20 个核心并占用约 48GB 的​​ RAM，但同时将比对时间减少至约 25-30%。您已经收到警告。
+  parallel: 4 
+  aligner: "bismark"
+  direction: "non_directional"
+  genome: "hg38"
+  #此选项可用于 PBAT-Seq 文库.仅当您确定您的文库是按照 PBAT 协议构建的时才使用此选项（如果您不知道 PBAT-Seq 是什么，则不应指定此选项）。该选项--pbat仅适用于 FastQ 文件和未压缩的临时文件。
+  #scRRBS不应该指定pbat参数（需要默认的定向比对）
+  # scBS,scNMT,scM&T
+  pbat: "pbat"
+  param: "--bowtie2 -L 20 --gzip"
+  deduplicate: 
+    enabled: true
+    param: ""
+  methylation_extractor:
+    enabled: true
+    #--bedGraph 生成一个.bedGraph 文件，其中包含每个 CpG 位点的甲基化百分比。此文件可以用于浏览器查看或进一步处理。--cytosine_report 生成一个.cov 文件，其中包含每个 CpG 位点的甲基化百分比。此文件可以用于进一步处理或用于统计目的。--gzip 生成压缩的输出文件。--comprehensive 生成一个包含所有 CpG 位点的报告。--merge_non_CpG 合并非 CpG 位点的甲基化信息。--parallel <int> 启动 <int> 个并行进程以加速处理。默认值为 1。
+    param: "--bedGraph --cytosine_report --gzip --comprehensive --merge_non_CpG --parallel 4"
+  bismark2bedGraph:
+    enabled: true
+    param: "--zero_based --gzip"
+  bismark2wig:
+    enabled: false
+    param: "--zero_based --gzip"
+  bismark2report:
+    enabled: false
+    param: ""
+  bismark2summary:
+    enabled: false
+    param: ""
+  bismark2html:
+    enabled: false
+    param: ""
+  bismark2bam:
+    enabled: false
+    param: "--bam --gzip"
+
+
+
