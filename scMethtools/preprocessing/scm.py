@@ -117,6 +117,14 @@ def scm(adata):
                 id_cells = np.where(df_metadata['label']==x)[0]
                 df_metadata.loc[df_metadata.index[id_cells],'label_color'] = self.uns['label_color'][x]
         return
+    def _write_h5ad(self, aggr_path, silent):
+        self.var = _to_categorical(self.var)
+        self.obs = _to_categorical(self.obs)
+
+        h5ad_path = os.path.join(aggr_path, "adata.raw.h5ad")
+        if not silent:
+            print("\nWriting to: {}..\n".format(h5ad_path))
+        self.write_h5ad(h5ad_path)
         
 
 
@@ -398,12 +406,12 @@ def filter_genes(adata, min_num_cells = None, min_pct_cells = None,
 #         return
     
     
-def feature_select(adata,number=3000):
+def feature_select(adata,top=3000):
     print(adata.shape)
     adata.raw = adata.copy()
     df = adata.var
-    feature_subset_sr = df.index.isin(df.sort_values('sr_var', ascending=False).index[:number])
-    feature_subset_var = df.index.isin(df.sort_values('sr_var', ascending=False).index[:number])
+    feature_subset_sr = df.index.isin(df.sort_values('sr_var', ascending=False).index[:top])
+    feature_subset_var = df.index.isin(df.sort_values('sr_var', ascending=False).index[:top])
     df['feature_select'] = feature_subset_sr
     df['feature_select_var'] = feature_subset_var
     adata.var = df

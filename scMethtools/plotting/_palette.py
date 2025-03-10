@@ -275,4 +275,7 @@ def ditto_palette()->list:
 
 def zeileis_palette()->list:
     return zeileis_26
+
+def palette64()->list:
+    return godsnot_64
     

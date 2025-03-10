@@ -482,11 +482,6 @@ def embedding(
                     cax, ax=ax, pad=0.01, fraction=0.08, aspect=30, location=colorbar_loc
                 )
 
-            
-            #pl.colorbar(
-            #    cax, ax=ax, pad=0.01, fraction=0.08, aspect=30, location=colorbar_loc
-            #)
-
     if return_fig is True:
         return fig
     axs = axs if grid else ax

@@ -10,7 +10,10 @@ import numpy as np
 import pandas as pd
 import click
 import collections
+import gzip
+import zipfile
 from pybedtools import BedTool
+
 
 def echo(*args, **kwargs):
     click.echo(*args, **kwargs, err=True)
@@ -128,21 +131,46 @@ def read_annotation_bed(annotation_file,keep_other_columns=True):
 
 def read_bed(filename, sort=False, usecols=[0, 1, 2], *args, **kwargs):
     """
-    load data from .bed file which is tab delimited txt file
+    Load data from .bed file and return as a dictionary of chromosome data.
+
     :param filename: str
-        file to load
-    :param sort:
-    :param usecols:
-    :param args:
-    :param kwargs:
-    :return:
+        The path to the .bed file.
+    :param sort: bool, optional
+        Whether to sort the data by chromo, start, and end columns.
+    :param usecols: list of int, optional
+        Columns to read from the .bed file.
+    :param args: Additional arguments passed to pd.read_table.
+    :param kwargs: Additional keyword arguments passed to pd.read_table.
+    :return: dict
+        Dictionary with chromosome as key and a set of tuples (start, end, other_column) as value.
     """
-    d = pd.read_table(filename, header=None, usecols=usecols, *args, **kwargs)
+    # Read the .bed file with the specified columns and data types
+    d = pd.read_table(filename, sep='\t', header=None, usecols=usecols, dtype={0: str}, *args, **kwargs)
     d.columns = range(d.shape[1])
     d.rename(columns={0: 'chromo', 1: 'start', 2: 'end'}, inplace=True)
+
+    # If there are more columns (beyond the first 3), include them in the result
+    if len(usecols) > 3:
+        other_columns = d.columns[3:]
+        for col in other_columns:
+            d[col] = d[col].astype(str)
+
+    # Sort the dataframe if required
     if sort:
-        d.sort(['chromo', 'start', 'end'], inplace=True)
-    return d
+        d.sort_values(['chromo', 'start', 'end'], inplace=True)
+
+    # Create a dictionary where the key is the chromo and value is a set of tuples (start, end, other_column)
+    result = {}
+    for _, row in d.iterrows():
+        chromo = row['chromo']
+        start, end = row['start'], row['end']
+        other_values = tuple(row[3:])  # Get other columns if any
+        if chromo not in result:
+            result[chromo] = set()
+        result[chromo].add((start, end) + other_values)
+
+    return result
+
 
 def load_chrom_size_file(chrom_file,remove_chr_list=None):
     with open(chrom_file) as f:
@@ -181,4 +209,83 @@ def parse_gtf(gtf, gene_type='protein_coding'):
     print("... Done")
     return coding
 
+def read_gff3(filename, sort=False, usecols=[0, 3, 4], *args, **kwargs):
+    """
+    load data from .gff3 file which is tab delimited txt file
+    :param filename: str
+        file to load
+    :param sort:
+    :param usecols:
+    :param args:
+    :param kwargs:
+    :return:
+    """
+    d = pd.read_table(filename, header=None, usecols=usecols, *args, **kwargs)
+    d.columns = range(d.shape[1])
+    d.rename(columns={0: 'chromo', 3: 'start', 4: 'end'}, inplace=True)
+    if sort:
+        d.sort(['chromo', 'start', 'end'], inplace=True)
+    return d
 
+
+def read_gtf(file_path,exclude_chromosomes=None, feature_type="gene", gene_type='protein_coding',tss_up=0, tss_down=0):
+    """gtf file can be download from ensembl  
+    'seqname','source','feature','start','end','score','strand','attribute','other'
+    Args:
+        file_path (_type_): _description_
+        feature_type (str): None or string ('transcript', 'exon', 'gene')
+        promoter_distance(int) : tss_up=0, tss_down=0
+    Returns:
+        _type_: _description_
+    """
+    annotation_dict = {}
+    # 获取文件扩展名
+    _, ext = os.path.splitext(file_path)
+
+    # 打开文件的逻辑写在一行中
+    with (zipfile.ZipFile(file_path, 'r').open(zip_info) if ext == '.zip' and (zip_info := zipfile.ZipFile(file_path, 'r').infolist()[0]).filename.endswith('.txt') else gzip.open(file_path, 'rt') if ext == '.gz' else open(file_path, 'r')) as file:
+    #with open(file_path, 'r') as file:
+        i=0
+        for line in file:
+            if line.startswith('#'):
+                continue  
+            fields = line.strip().split('\t')
+            feature_type = fields[2]
+            i +=1
+            if i==1:
+                print(fields)
+            if feature_type == 'gene':
+                attributes = dict(item.strip().split(' ') for item in fields[8].split(';') if item.strip())
+                gene_type = attributes.get('gene_biotype', attributes.get('gene_type', '')).replace('"', '')
+                gene_name = attributes.get('gene_name', '').replace('"', '')
+                gene_id = attributes.get('gene_id', '').replace('"', '')
+                chrom = 'chr' + fields[0]
+                start = int(fields[3])
+                end = int(fields[4])
+                strand = fields[6]
+                if i==1:
+                    print(gene_type,gene_name)
+                if gene_type == 'protein_coding':
+                    #print(gene_type)
+                    # 计算启动子的起始位置和终止位置
+                    if tss_up != 0:
+                        if strand == '+':
+                            promoter_start = max(1, start - tss_up)
+                            promoter_end = start + tss_down
+                        elif strand == '-':
+                            promoter_start = end - tss_down
+                            promoter_end = end + tss_up
+                        else:
+                            raise ValueError(f"Unknown strand: {strand}")
+
+                        annotation_dict.setdefault(chrom, []).append((promoter_start, promoter_end, gene_name, gene_id,strand))
+                    else:
+                        annotation_dict.setdefault(chrom, []).append((start, end, gene_name, gene_id,strand))
+     
+    # 如果需要排除的染色体列表为空，直接返回原始字典
+    if not exclude_chromosomes:
+        return annotation_dict
+    
+    # 使用字典推导式，排除掉不需要的染色体
+    filtered_dict = {chrom: regions for chrom, regions in annotation_dict.items() if chrom not in exclude_chromosomes}
+    return filtered_dict

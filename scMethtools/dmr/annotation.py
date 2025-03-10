@@ -503,3 +503,33 @@ def read_gff(file_path,feature_type="gene", tss_up=0, tss_down=0):
                     else:
                         annotation_dict.setdefault(chrom, []).append((start, end, gene_name))
     return annotation_dict
+
+def map_ensembl_to_gene_name(de_results, gene_names_file):
+    """
+    Map Ensembl IDs to gene names and remove genes with no mapping.
+
+    Parameters
+    ----------
+    de_results : pd.DataFrame
+        DataFrame containing the differential expression analysis results.
+    gene_names_file : str
+        Path to the file containing the mapping between Ensembl IDs and gene names.
+
+    Returns
+    -------
+    pd.DataFrame
+        DataFrame with Ensembl IDs mapped to gene names and genes with no mapping removed.
+    """
+    # Read the gene names file
+    gene_names = pd.read_csv(gene_names_file, sep='\t', header=None, names=['ensembl_id', 'gene_name'])
+
+    # Create a dictionary for mapping Ensembl IDs to gene names
+    id_to_name = dict(zip(gene_names['ensembl_id'], gene_names['gene_name']))
+
+    # Map Ensembl IDs to gene names in the results DataFrame
+    de_results['gene_name'] = de_results['gene'].map(id_to_name)
+
+    # Remove genes with no mapping
+    de_results = de_results.dropna(subset=['gene_name'])
+
+    return de_results

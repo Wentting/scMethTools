@@ -284,11 +284,11 @@ def caculate_bins_residual(data_path,annotation_dict,half_bw=500):
             smooth_path = os.path.join(data_path,"smooth", f"{chromosome}_coo.csv")
             smooth_df = pd.read_csv(smooth_path, delimiter=",", header=None,names=['key', 'value'])
             smooth_dict = dict(zip(smooth_df['key'], smooth_df['value']))
-            for region_start, region_end in regions: #annotation regions 
-                #print("annotation-region",region_start,'-',region_end)
-                #返回值不是元组，而是两个独立的列表。因此，在调用 _calc_mean_shrunken_residuals 函数时，只能使用一个变量来接收返回值
-                #mean_shrunk_resid, mean_level = _calc_mean_shrunken_residuals
-                #_calc_mean_shrunken_residuals !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!! scbs
+            for region in regions:#annotation regions 
+                if len(region) == 2:
+                    region_start, region_end = region
+                else:
+                    region_start, region_end, *additional_info = region 
                 result = _calc_mean_shrunken_residuals(
                     data_chrom,
                     region_start,
@@ -315,7 +315,11 @@ def _caculate_bins_residual_chrom(npz_path,chromosome,regions,smooth_dict):
         )
         data_chrom = None
     chrom_len, n_cells = data_chrom.shape
-    for region_start, region_end in regions: #annotation regions 
+    for region in regions:#annotation regions 
+        if len(region) == 2:
+            region_start, region_end = region
+        else:
+            region_start, region_end, *additional_info = region
         #print("annotation-region",region_start,'-',region_end)
         #返回值不是元组，而是两个独立的列表。因此，在调用 _calc_mean_shrunken_residuals 函数时，只能使用一个变量来接收返回值
         #mean_shrunk_resid, mean_level = _calc_mean_shrunken_residuals
@@ -410,7 +414,13 @@ def load_features(feature_file,format=None):
     if input_file_format=="bed":
         features_dict = read_annotation_bed(feature_file)
     # elif input_file_format=='gtf':
-    #     features_chrom = load_features_gtf(feature_file,feature_type="gene")
+    #     features_dict = load_features_gtf(feature_file,feature_type="gene")
+    # elif input_file_format=='gff':
+    #     features_dict = load_features_gff(feature_file,feature_type="gene")
+    # elif input_file_format=='csv':
+    #     features_dict = load_features_csv(feature_file)
+    else:
+        raise ValueError("Unsupported file format")
     return features_dict    
 
 
@@ -590,7 +600,6 @@ def _import_cells_worker(cells, out_dir, context, cpu,chrom_col, pos_col, meth_c
     logg.info(f"# Temp coo data writing to {data_path}")
 
     with ProcessPoolExecutor(max_workers=cpu) as executor:
-        # 使用partial创建带参数的函数，方便并行执行
         process_partial_param = partial(_process_partial, data_path=data_path, context=context, chrom_col=chrom_col, pos_col=pos_col,
                                   meth_col=meth_col, umeth_col=umeth_col, context_col=context_col, cov=cov, sep=sep, header=header)
         stat_result = list(executor.map(process_partial_param, enumerate(cells)))
@@ -832,7 +841,7 @@ def save_cells(tmp_path, output_dir, cpu=10, smooth=True, exclude_chrom=None, ke
 
     
 
-def feature_to_scm(feature,npz_path,output_dir,out_file,cpu,relative,smooth,copy=False,meta=None):
+def feature_to_scm(feature,output_dir,out_file,npz_path=None, cpu=1,relative=True,smooth=False,copy=False,meta=None):
     #feature_to_scm(feature=features[feature_index],output_dir=npz_path,out_file=fn,cpu=cpu,relative=relative,smooth=smooth,copy=True,meta=meta_df)
     """This function calculate methylation level and residual for coo files in features
     Args:

@@ -5,42 +5,264 @@ import matplotlib.pyplot as plt
 import seaborn as sns
 from scMethtools._utils import savefig
 
-def grouped_value_boxplot(adata, color_by, value_column, colors=None):
+def set_colors(adata, key, colors=None, palette=None, n_colors=None):
     """
-    绘制分组箱线图
-
-    参数:
-    adata (AnnData): 包含数据和分组信息的AnnData对象
-    color_by (str): 用于分组的列名
-    value_column (str): 要绘制箱线图的数值列名
-    colors (list): 可选参数，用于指定颜色的列表
-    """
-    plt.figure(figsize=(10, 6))
+    Set or modify color palette in adata.uns for categorical variables.
     
-    if colors is None:
-        # 使用Matplotlib的调色盘为不同分组着色，将其转化为Seaborn颜色列表
-        n_colors = len(adata.obs[color_by].unique())
-        if n_colors > 10:
-            colors = [plt.cm.get_cmap('tab20', n_colors)(i) for i in range(n_colors)]
+    Parameters
+    ----------
+    adata : AnnData
+        AnnData object to modify.
+    key : str
+        The name of the categorical variable in adata.obs.
+    colors : list, optional
+        List of colors to use. If None, will use palette or default.
+    palette : str, optional
+        Name of the matplotlib/seaborn color palette to use.
+    n_colors : int, optional
+        Number of colors to generate. If None, will use the number of categories.
+        
+    Returns
+    -------
+    adata : AnnData
+        The modified AnnData object.
+        
+    Examples
+    --------
+    >>> import scMethtools as scm
+    >>> # Set colors for 'cell_type' using a list of colors
+    >>> adata = scm.pl.set_colors(adata, 'cell_type', colors=['#FF0000', '#00FF00', '#0000FF'])
+    >>> 
+    >>> # Set colors for 'treatment' using a seaborn palette
+    >>> adata = scm.pl.set_colors(adata, 'treatment', palette='Set2')
+    >>> 
+    >>> # Set colors for 'condition' with a specific number of colors
+    >>> adata = scm.pl.set_colors(adata, 'condition', palette='viridis', n_colors=5)
+    """
+    # 确保key存在于adata.obs中
+    if key not in adata.obs.columns:
+        raise ValueError(f"'{key}' not found in adata.obs")
+    
+    # 确保分类变量是分类类型
+    if not pd.api.types.is_categorical_dtype(adata.obs[key]):
+        adata.obs[key] = adata.obs[key].astype('category')
+    
+    # 获取类别数量
+    categories = adata.obs[key].cat.categories
+    n_cats = len(categories)
+    
+    # 如果没有指定n_colors，使用类别数量
+    if n_colors is None:
+        n_colors = n_cats
+    
+    # 生成颜色
+    if colors is not None:
+        # 确保颜色数量足够
+        if len(colors) < n_cats:
+            # 如果颜色不够，循环使用
+            colors = colors * (n_cats // len(colors) + 1)
+        color_list = colors[:n_cats]
+    elif palette is not None:
+        # 使用指定的调色板
+        try:
+            color_list = sns.color_palette(palette, n_colors)
+        except ValueError:
+            # 如果调色板名称无效，使用默认调色板
+            print(f"Invalid palette name '{palette}'. Using default palette.")
+            color_list = sns.color_palette("tab10", n_colors)
+    else:
+        # 使用默认调色板
+        if n_cats > 10:
+            color_list = sns.color_palette("tab20", n_cats)
         else:
-            colors = [plt.cm.get_cmap('tab10', n_colors)(i) for i in range(n_colors)]
+            color_list = sns.color_palette("tab10", n_cats)
     
-    # 绘制箱线图
-    ax = sns.boxplot(x=color_by, y=value_column, data=adata.obs, palette=colors)
+    # 将颜色列表转换为numpy数组并存储在adata.uns中
+    color_key = f"{key}_colors"
+    adata.uns[color_key] = np.array(color_list)
     
-    # 绘制中线
-    medians = adata.obs.groupby(color_by)[value_column].median()
-    xtick_labels = list(adata.obs[color_by].unique())
+    return adata
+
+def get_colors_from_adata(adata, key, colors=None):
+    """
+    Get colors for a categorical variable from adata.uns or use provided colors.
     
-    for xtick, median in zip(ax.get_xticks(), medians):
-        ax.text(xtick, median, f'{median:.2f}', ha='center', va='bottom', color='k', fontsize=10)
+    Parameters
+    ----------
+    adata : AnnData
+        AnnData object containing the data.
+    key : str
+        The name of the categorical variable.
+    colors : list, optional
+        List of colors to use. If provided, these colors will be used instead of
+        those in adata.uns.
+        
+    Returns
+    -------
+    list
+        List of colors to use for plotting.
+    """
+    color_key = f"{key}_colors"
     
-    plt.xticks(np.arange(len(xtick_labels)), xtick_labels)
+    # 如果提供了颜色，优先使用
+    if colors is not None:
+        return colors
     
-    plt.title(f'Grouped Boxplot of {value_column} by {color_by}')
-    plt.xlabel(color_by)
-    plt.ylabel(value_column)
-    plt.show()
+    # 检查adata.uns中是否有颜色定义
+    if color_key in adata.uns:
+        print(f"Get colors from adata.uns{color_key} ...")
+        return adata.uns[color_key]
+    
+    # 如果没有定义颜色，返回None（使用默认颜色）
+    return None
+
+def grouped_value_boxplot(adata, color_by, value_column, colors=None,
+                          figsize=None, fontsize=None, dpi=None,
+                          show=None, save=None, title=None,
+                          median_labels=True, median_fmt='.2f',
+                          jitter=True, jitter_alpha=0.5, jitter_size=4,
+                          box_width=0.6, theme='ticks', palette=None,
+                          **kwargs):
+    """
+    Generate a boxplot grouped by a categorical variable.
+
+    Parameters
+    ----------
+    adata : AnnData
+        AnnData object containing data and grouping information.
+    color_by : str
+        Column name for grouping.
+    value_column : str
+        Column name for the numeric values to plot.
+    colors : list, optional
+        List of colors for different groups.
+    figsize : tuple, optional
+        Figure size, if None use global settings.
+    fontsize : int, optional
+        Font size, if None use global settings.
+    dpi : int, optional
+        Figure resolution, if None use global settings.
+    show : bool, optional
+        Whether to show the plot, if None use global settings.
+    save : str, optional
+        Filename to save the plot, default None.
+    title : str, optional
+        Custom title for the plot. If None, a default title is generated.
+    median_labels : bool, optional
+        Whether to show median value labels, default True.
+    median_fmt : str, optional
+        Format string for median labels, default '.2f'.
+    jitter : bool, optional
+        Whether to add jittered points to the boxplot, default True.
+    jitter_alpha : float, optional
+        Alpha value for jittered points, default 0.5.
+    jitter_size : int, optional
+        Size of jittered points, default 4.
+    box_width : float, optional
+        Width of the boxes, default 0.6.
+    theme : str, optional
+        Seaborn theme to use, default 'ticks'.
+    palette : str or list, optional
+        Color palette to use, overrides colors if provided.
+    **kwargs : dict
+        Additional parameters passed to sns.boxplot.
+
+    Returns
+    -------
+    tuple
+        (fig, ax) matplotlib figure and axes objects.
+
+    Examples
+    --------
+    >>> import scMethtools as scm
+    >>> # Basic usage with default parameters
+    >>> scm.pl.grouped_value_boxplot(adata, 'cell_type', 'gene_expression')
+    >>> 
+    >>> # Add jittered points with custom appearance
+    >>> scm.pl.grouped_value_boxplot(adata, 'cell_type', 'gene_expression', 
+    ...                             jitter=True, jitter_alpha=0.7, jitter_size=3)
+    >>> 
+    >>> # Use a custom color palette
+    >>> scm.pl.grouped_value_boxplot(adata, 'cell_type', 'gene_expression',
+    ...                             palette='viridis')
+    """
+    # Use provided parameters or global settings
+    _figsize = figsize if figsize is not None else plt.rcParams["figure.figsize"]
+    _fontsize = fontsize if fontsize is not None else plt.rcParams["font.size"]
+    _dpi = dpi if dpi is not None else plt.rcParams["figure.dpi"]
+    
+    # Set seaborn style
+    with sns.axes_style(theme):
+        # Create figure and axes
+        fig, ax = plt.subplots(figsize=_figsize, dpi=_dpi)
+        
+        # Get unique categories and their count
+        categories = adata.obs[color_by].unique()
+        n_categories = len(categories)
+        
+        # Determine colors/palette
+        if palette is not None:
+            # Use provided palette name or list
+            color_palette = palette
+        elif colors is not None:
+            # If colors is a list, create a dictionary mapping categories to colors
+            if isinstance(colors, list):
+                # Make sure we have enough colors
+                if len(colors) < n_categories:
+                    # Extend the color list if needed
+                    colors = colors * (n_categories // len(colors) + 1)
+                # Create a dictionary mapping categories to colors
+                color_palette = {cat: colors[i % len(colors)] for i, cat in enumerate(categories)}
+            else:
+                color_palette = colors
+        else:
+            color_palette = get_colors_from_adata(adata, color_by)
+            if color_palette is None:
+                # Use default colormap
+                if n_categories > 10:
+                    color_palette = sns.color_palette("tab20", n_categories)
+                else:
+                    color_palette = sns.color_palette("tab10", n_categories)
+        
+        # Draw boxplot
+        boxplot = sns.boxplot(x=color_by, y=value_column, data=adata.obs, 
+                   palette=color_palette, ax=ax, width=box_width, **kwargs)
+        
+        # Add jittered points if requested
+        if jitter:
+            sns.stripplot(x=color_by, y=value_column, data=adata.obs,
+                         palette=color_palette, ax=ax, size=jitter_size, 
+                         alpha=jitter_alpha, jitter=True, dodge=True)
+        
+        # Add median values if requested
+        if median_labels:
+            medians = adata.obs.groupby(color_by)[value_column].median()
+            xtick_labels = list(categories)
+            
+            for xtick, median in zip(ax.get_xticks(), medians):
+                ax.text(xtick, median, f'{median:{median_fmt}}', 
+                       ha='center', va='bottom', color='k', 
+                       fontsize=_fontsize*0.8, fontweight='bold')
+        
+        # Set x-ticks and labels
+        ax.set_xticks(np.arange(len(xtick_labels)))
+        ax.set_xticklabels(xtick_labels, fontsize=_fontsize)
+        ax.tick_params(axis='y', labelsize=_fontsize)
+        
+        # Set title and labels
+        if title is None:
+            title = f'Grouped Boxplot of {value_column} by {color_by}'
+        ax.set_title(title, fontsize=_fontsize*1.1, fontweight='bold')
+        ax.set_xlabel(color_by, fontsize=_fontsize)
+        ax.set_ylabel(value_column, fontsize=_fontsize)
+        
+        # Remove top and right spines
+        sns.despine(ax=ax)
+        
+        # Save and show figure
+        savefig("boxplot", save=save, show=show)
+        
+        return fig, ax
 
 def stacked_plot(adata,
                  groupby,
@@ -48,10 +270,16 @@ def stacked_plot(adata,
                  orientation='vertical',
                  ax=None,
                  color=None,
-                 figsize=(10,6),
-                 fontsize=10, 
-                 show=True,
-                 save=None):
+                 dpi=None,
+                 figsize=None,
+                 fontsize=None, 
+                 show=None,
+                 save=None,
+                 legend_fontsize=None,
+                 legend_loc='best',  # 添加图例位置参数
+                 legend_bbox_to_anchor=None,  # 添加图例锚点参数
+                 **kwargs
+                ):
     """
     generate a stacked bar plot of groupby by colorby
 
@@ -71,44 +299,56 @@ def stacked_plot(adata,
     stacked_bar(adata,groupby='Cell_type',orientation='horizontal',colorby='Treatment',color=scm.pl.ditto_palette())
     
     """
+     # 使用传入的参数或全局设置
+    _figsize = figsize if figsize is not None else plt.rcParams["figure.figsize"]
+    _fontsize = fontsize if fontsize is not None else plt.rcParams["font.size"]
+    _dpi = dpi if dpi is not None else plt.rcParams["figure.dpi"]
      # 获取 obs 数据
-    obs = adata.obs
-    # 检查 uns 字典中是否有颜色信息
-    if f'{colorby}_colors' in adata.uns:
-        colors = adata.uns[f'{colorby}_colors']
-        
+    obs = adata.obs  
     # 创建透视表，用于绘制堆积图
     pivot_table = obs.pivot_table(index=groupby, columns=colorby, aggfunc='size', fill_value=0, observed=False)
     #print(pivot_table)
     if color is not None:
         colors = color[:len(pivot_table.columns)]
     else:
-        colors = None
+        colors = get_colors_from_adata(adata, colorby)
 
     if ax is None:
-        fig, ax = plt.subplots(figsize=figsize,dpi=200)
+        fig, ax = plt.subplots(figsize=_figsize,dpi=_dpi)
     else:
         fig = ax.get_figure()
         
     # 绘制堆积条形图
     if orientation == 'horizontal':
         pivot_table.plot(kind='barh', stacked=True, color=colors, ax=ax)
-        ax.set_xlabel('Counts')
-        ax.set_ylabel(groupby)
+        ax.set_xlabel('Counts', fontsize=_fontsize)
+        ax.set_ylabel(groupby, fontsize=_fontsize)
     else:
         pivot_table.plot(kind='bar', stacked=True, color=colors, ax=ax)
-        ax.set_xlabel(groupby)
-        ax.set_ylabel('Counts')
+        ax.set_xlabel(groupby, fontsize=_fontsize)
+        ax.set_ylabel('Counts', fontsize=_fontsize)
     
     # 设置图形标题和标签
-    ax.set_title(f'Stacked Bar Plot of {groupby} by {colorby}')
-    ax.legend(title=colorby)
+    ax.set_title(f'Stacked Bar Plot of {groupby} by {colorby}', fontsize=_fontsize)
+    
+    # 设置图例字体大小
+    if legend_fontsize is None:
+        legend_fontsize = _fontsize * 0.8  # 默认图例字体稍小于主字体
+    
+    # 设置图例并应用字体大小
+    legend = ax.legend(title=colorby)
+    plt.setp(legend.get_title(), fontsize=_fontsize)  # 设置图例标题字体大小
+    plt.setp(legend.get_texts(), fontsize=legend_fontsize)  # 设置图例文本字体大小
+
+    # 设置刻度标签字体大小
+    ax.tick_params(axis='both', which='major', labelsize=_fontsize)
 
     # 设置左边和下边的坐标刻度为透明色
     ax.yaxis.tick_left()
     ax.xaxis.tick_bottom()
     ax.xaxis.set_tick_params(color='none')
     ax.yaxis.set_tick_params(color='none')
+    
     # 显示图形
     savefig("stacked", save=save, show=show)
 
@@ -190,36 +430,6 @@ def propotion(adata,groupby:str,color_by:str,
     if ax==None:
         return fig,ax
     
-def map_ensembl_to_gene_name(de_results, gene_names_file):
-    """
-    Map Ensembl IDs to gene names and remove genes with no mapping.
-
-    Parameters
-    ----------
-    de_results : pd.DataFrame
-        DataFrame containing the differential expression analysis results.
-    gene_names_file : str
-        Path to the file containing the mapping between Ensembl IDs and gene names.
-
-    Returns
-    -------
-    pd.DataFrame
-        DataFrame with Ensembl IDs mapped to gene names and genes with no mapping removed.
-    """
-    # Read the gene names file
-    gene_names = pd.read_csv(gene_names_file, sep='\t', header=None, names=['ensembl_id', 'gene_name'])
-
-    # Create a dictionary for mapping Ensembl IDs to gene names
-    id_to_name = dict(zip(gene_names['ensembl_id'], gene_names['gene_name']))
-
-    # Map Ensembl IDs to gene names in the results DataFrame
-    de_results['gene_name'] = de_results['gene'].map(id_to_name)
-
-    # Remove genes with no mapping
-    de_results = de_results.dropna(subset=['gene_name'])
-
-    return de_results
-
 def plot_volcano(results_df, log2_fc_col='log2_fold_change', pval_col='p_value', alpha=0.05, lfc_threshold=1.0):
     """
     Generate a volcano plot for the differential expression results.

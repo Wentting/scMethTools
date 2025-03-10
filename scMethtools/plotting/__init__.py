@@ -7,8 +7,8 @@
 """
 
 from ._scatter import embedding,pca,tsne,umap
-from ._palette import palette,red_palette,blue_palette,green_palette,purple_palette,ditto_palette,zeileis_palette
+from ._palette import palette,red_palette,blue_palette,green_palette,purple_palette,ditto_palette,zeileis_palette,palette64
 from .dendrogram import dendrogram
 from .marker import plot_marker
 from ._profile import profile
-from .basic import grouped_value_boxplot,stacked_plot
+from .basic import grouped_value_boxplot,stacked_plot,propotion
