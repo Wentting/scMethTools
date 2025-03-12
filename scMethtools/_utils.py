@@ -5,11 +5,102 @@
 > Created Time: 2023年08月21日
 
 """
-
+import os
+import psutil
+import pandas as pd
 import numpy as np
 import anndata as ad
+import seaborn as sns
+import matplotlib as mpl
+import matplotlib.pyplot as plt
+from pandas.api.types import is_string_dtype,is_numeric_dtype
+from matplotlib import patheffects, rcParams
+from scMethtools import settings
+from scMethtools import logging as logg
 
-from snapatac2._snapatac2 import AnnData, AnnDataSet, read
+# from snapatac2._snapatac2 import AnnData, AnnDataSet, read
+
+def set_figure_params(context='notebook',style='white',palette='deep',font='sans-serif',font_scale=1.1,color_codes=True,
+                      dpi=80,dpi_save=150,figsize=[5.4, 4.8],rc=None):
+    """ Set global parameters for figures. Modified from sns.set()
+    Parameters
+    ----------
+    context : string or dict
+        Plotting context parameters, see seaborn :func:`plotting_context
+    style: `string`,optional (default: 'white')
+        Axes style parameters, see seaborn :func:`axes_style`
+    palette : string or sequence
+        Color palette, see seaborn :func:`color_palette`
+    font_scale: `float`, optional (default: 1.3)
+        Separate scaling factor to independently scale the size of the font elements.        
+    color_codes : `bool`, optional (default: True)
+        If ``True`` and ``palette`` is a seaborn palette, remap the shorthand
+        color codes (e.g. "b", "g", "r", etc.) to the colors from this palette.
+    dpi: `int`,optional (default: 80)
+        Resolution of rendered figures.
+    dpi_save: `int`,optional (default: 150)
+        Resolution of saved figures.
+    rc: `dict`,optional (default: None)
+        rc settings properties. Parameter mappings to override the values in the preset style.
+        Please see https://matplotlib.org/tutorials/introductory/customizing.html#a-sample-matplotlibrc-file
+    """
+#     mpl.rcParams.update(mpl.rcParamsDefault)
+    sns.set_theme(context=context,style=style,palette=palette,font=font,font_scale=font_scale,color_codes=color_codes,
+            rc={'figure.dpi':dpi,
+                'savefig.dpi':dpi_save,
+                'figure.figsize':figsize,
+                'image.cmap': 'viridis',
+                'lines.markersize':6,
+                'legend.columnspacing':0.1,
+                'legend.borderaxespad':0.1,
+                'legend.handletextpad':0.1,
+                'pdf.fonttype':42,})
+    if(rc is not None):
+        assert isinstance(rc,dict),"rc must be dict"  
+        for key, value in rc.items():
+            if key in plt.rcParams.keys():
+                plt.rcParams[key] = value
+            else:
+                raise Exception("unrecognized property '%s'" % key)
+            
+def get_colors(adata,ann):
+    df_cell_colors = pd.DataFrame(index=adata.obs.index)
+    if(is_numeric_dtype(adata.obs[ann])):
+        cm = mpl.cm.get_cmap()
+        norm = mpl.colors.Normalize(vmin=0, vmax=max(adata.obs[ann]),clip=True)
+        df_cell_colors[ann+'_color'] = [mpl.colors.to_hex(cm(norm(x))) for x in adata.obs[ann]]
+    else:
+        if(ann+'_color' not in adata.uns_keys()):  
+            ### a hacky way to generate colors from seaborn
+            tmp = pd.DataFrame(index=adata.obs_names,
+                   data=np.random.rand(adata.shape[0], 2))
+            tmp[ann] = adata.obs[ann]
+            fig = plt.figure()
+            ax_i = fig.add_subplot(1,1,1)
+            sc_i=sns.scatterplot(ax=ax_i,x=0, y=1,hue=ann,data=tmp,linewidth=0)             
+            colors_sns = sc_i.get_children()[0].get_facecolors()
+            colors_sns_scaled = (255*colors_sns).astype(int)
+            ax_i.remove()
+            adata.uns[ann+'_color'] = {tmp[ann][i]:'#%02x%02x%02x' % (colors_sns_scaled[i][0], colors_sns_scaled[i][1], colors_sns_scaled[i][2])
+                                       for i in np.unique(tmp[ann],return_index=True)[1]}            
+        dict_color = adata.uns[ann+'_color']
+        df_cell_colors[ann+'_color'] = ''
+        for x in dict_color.keys():
+            id_cells = np.where(adata.obs[ann]==x)[0]
+            df_cell_colors.loc[df_cell_colors.index[id_cells],ann+'_color'] = dict_color[x]
+    return(df_cell_colors[ann+'_color'].tolist())
+
+def HowManyTime(tbegin,tend):
+    """
+    to calculate the time to evaluate the speed
+    """
+    tTotal=tend-tbegin
+    tsec=tTotal%60
+    ttolmin=tTotal//60
+    thour=ttolmin//60
+    tmin=ttolmin%60
+    suretime="running time is %d hour, %d minutes, %.2f seconds"%(thour,tmin,tsec)
+    return suretime
 
 def _memory_usage_psutil():
     """
@@ -22,47 +113,11 @@ def _memory_usage_psutil():
 def binary_beta(beta_value,cut_ceil,cut_off):
     if beta_value > cut_ceil:
         beta_value=1
-    elif call_area <= cut_off:
+    elif beta_value <= cut_off:
         beta_value=0
     else:
         return -1
     return beta_value
-
-
-def is_anndata(data) -> bool:
-    return isinstance(data, ad.AnnData) or isinstance(data, AnnData) or isinstance(data, AnnDataSet)
-
-
-def anndata_par(adatas, func, n_jobs=4):
-    from multiprocess import get_context
-
-    def _func(input):
-        if isinstance(input, ad.AnnData):
-            result = func(input)
-        else:
-            adata = read(input)
-            result = func(adata)
-            adata.close()
-        return result
-
-    adatas_list = []
-    for data in adatas:
-        if isinstance(data, ad.AnnData):
-            adatas_list.append(data)
-        else:
-            adatas_list.append(data.filename)
-            data.close()
-
-    with get_context("spawn").Pool(n_jobs) as p:
-        result = p.map(_func, adatas_list)
-
-    # Reopen the files if they were closed
-    for data in adatas_list:
-        if not isinstance(data, ad.AnnData):
-            data.open()
-
-    return result
-
 
 def get_igraph_from_adjacency(adj):
     """Get igraph graph from adjacency matrix."""
@@ -131,3 +186,87 @@ def pcorr(A, B):
 
     return (p1 - p2) / np.sqrt(p4 * p3[:, None])
 
+
+def savefig(
+    writekey=str,
+    show= None,
+    dpi=None,
+    ext= None,
+    save=None,
+):
+    """
+
+    Parameters:
+    -----------
+    writekey: `str`
+        The name of the file to save the figure to.
+    show: `bool`, optional (default: None)
+        Whether to display the figure.
+    dpi: `int`, optional (default: None)
+        The resolution of the figure in dots per inch.  
+    ext: `str`, optional (default: None)
+        The file extension of the figure. 
+    save: `bool`, optional (default: None)
+        Whether to save the figure.
+    ____________________________________________________________
+    savefig(dpi=dpi, save=save, show=show)
+    """
+    if isinstance(save, str):
+        # check whether `save` contains a figure extension
+        if ext is None:
+            for try_ext in [".svg", ".pdf", ".png"]:
+                if save.endswith(try_ext):
+                    ext = try_ext[1:]
+                    save = save.replace(try_ext, "")
+                    break
+        # append it
+        writekey += save
+        save = True
+    save = settings.autosave if save is None else save
+    show = settings.autoshow if show is None else show
+    if save:
+        if dpi is None:
+            # needed in nb b/c internal figures are also influenced by 'savefig.dpi'.
+            if (
+                not isinstance(rcParams["savefig.dpi"], str)
+                and rcParams["savefig.dpi"] < 150
+            ):
+                if settings._low_resolution_warning:
+                    logg.warn(
+                        "You are using a low resolution (dpi<150) for saving figures.\n"
+                        "Consider running `set_figure_params(dpi_save=...)`, which "
+                        "will adjust `matplotlib.rcParams['savefig.dpi']`"
+                    )
+                    settings._low_resolution_warning = False
+            else:
+                dpi = rcParams["savefig.dpi"]
+        if len(settings.figdir) > 0:
+            if settings.figdir[-1] != "/":
+                settings.figdir += "/"
+            if not os.path.exists(settings.figdir):
+                os.makedirs(settings.figdir)
+        if ext is None:
+            ext = settings.file_format_figs
+        filepath = f"{settings.figdir}{settings.plot_prefix}{writekey}"
+        #print('writekey',writekey)
+        if "/" in writekey:
+            filepath = f"{writekey}"
+        try:
+            #plot_suffix = scm
+            filename = filepath + f"{settings.plot_suffix}.{ext}"
+            plt.savefig(filename, dpi=dpi,bbox_inches='tight')
+        except ValueError as e:
+            # save as .png if .pdf is not feasible (e.g. specific streamplots)
+            filename = filepath + f"{settings.plot_suffix}.png"
+            plt.savefig(filename, dpi=dpi,bbox_inches='tight')
+            logg_message = (
+                f"figure cannot be saved as {ext}, using png instead "
+                f"({e.__str__().lower()})."
+            )
+            logg.msg(logg_message, v=1)
+        logg.msg("saving figure to file", filename, v=1)
+        print(f"Fig saved at {filename}")
+    if show:
+        plt.show()
+    if save:
+        plt.close()  # clear figure

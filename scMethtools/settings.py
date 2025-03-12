@@ -2,6 +2,7 @@ import seaborn as sns
 import matplotlib as mpl
 from matplotlib import cm, colors, rcParams
 import warnings
+from cycler import cycler
 from packaging.version import parse
 
 """
@@ -86,6 +87,9 @@ _rcParams_style = None
 """See set_figure_params.
 """
 
+vega_10 = ['#1f77b4', '#ff7f0e', '#2ca02c', '#d62728', '#9467bd', 
+           '#8c564b', '#e377c2', '#7f7f7f', '#bcbd22', '#17becf']
+
 # --------------------------------------------------------------------------------
 # Functions
 # --------------------------------------------------------------------------------
@@ -93,58 +97,58 @@ _rcParams_style = None
 warnings.filterwarnings("ignore", category=mpl.MatplotlibDeprecationWarning)
 
 
-def set_figure_params(context='notebook',style='white',palette='deep',font='sans-serif',font_scale=1.1,color_codes=True,
-                      dpi=80,dpi_save=150,figsize=[5.4, 4.8],rc=None):
-    """ Set global parameters for figures. Modified from sns.set()
-    Parameters
-    ----------
-    context : string or dict
-        Plotting context parameters, see seaborn :func:`plotting_context
-    style: `string`,optional (default: 'white')
-        Axes style parameters, see seaborn :func:`axes_style`
-    palette : string or sequence
-        Color palette, see seaborn :func:`color_palette`
-    font_scale: `float`, optional (default: 1.3)
-        Separate scaling factor to independently scale the size of the font elements.        
-    color_codes : `bool`, optional (default: True)
-        If ``True`` and ``palette`` is a seaborn palette, remap the shorthand
-        color codes (e.g. "b", "g", "r", etc.) to the colors from this palette.
-    dpi: `int`,optional (default: 80)
-        Resolution of rendered figures.
-    dpi_save: `int`,optional (default: 150)
-        Resolution of saved figures.
-    rc: `dict`,optional (default: None)
-        rc settings properties. Parameter mappings to override the values in the preset style.
-        Please see https://matplotlib.org/tutorials/introductory/customizing.html#a-sample-matplotlibrc-file
-    """
-#     mpl.rcParams.update(mpl.rcParamsDefault)
-    sns.set_theme(context=context,style=style,palette=palette,font=font,font_scale=font_scale,color_codes=color_codes,
-            rc={'figure.dpi':dpi,
-                'savefig.dpi':dpi_save,
-                'figure.figsize':figsize,
-                'image.cmap': 'viridis',
-                'lines.markersize':6,
-                'legend.columnspacing':0.1,
-                'legend.borderaxespad':0.1,
-                'legend.handletextpad':0.1,
-                'pdf.fonttype':42,})
-    if(rc is not None):
-        assert isinstance(rc,dict),"rc must be dict"  
-        for key, value in rc.items():
-            if key in mpl.rcParams.keys():
-                mpl.rcParams[key] = value
-            else:
-                raise Exception("unrecognized property '%s'" % key)
-            
-            
-def set_rcParams_scvelo(fontsize=12, color_map=None, frameon=None):
+# def set_figure_params(context='paper',style='white',palette='deep',font='sans-serif',font_scale=1.1,color_codes=True,
+#                       dpi=80,dpi_save=150,figsize=[5.4, 4.8],rc=None):
+#     """ Set global parameters for figures. Modified from sns.set()
+#     Parameters
+#     ----------
+#     context : string or dict
+#         Plotting context parameters, see seaborn :func:`plotting_context
+#     style: `string`,optional (default: 'white')
+#         Axes style parameters, see seaborn :func:`axes_style`
+#     palette : string or sequence
+#         Color palette, see seaborn :func:`color_palette`
+#     font_scale: `float`, optional (default: 1.3)
+#         Separate scaling factor to independently scale the size of the font elements.        
+#     color_codes : `bool`, optional (default: True)
+#         If ``True`` and ``palette`` is a seaborn palette, remap the shorthand
+#         color codes (e.g. "b", "g", "r", etc.) to the colors from this palette.
+#     dpi: `int`,optional (default: 80)
+#         Resolution of rendered figures.
+#     dpi_save: `int`,optional (default: 150)
+#         Resolution of saved figures.
+#     rc: `dict`,optional (default: None)
+#         rc settings properties. Parameter mappings to override the values in the preset style.
+#         Please see https://matplotlib.org/tutorials/introductory/customizing.html#a-sample-matplotlibrc-file
+#     """
+# #     mpl.rcParams.update(mpl.rcParamsDefault)
+    
+#     sns.set_theme(context=context,style=style,palette=palette,font=font,font_scale=font_scale,color_codes=color_codes,
+#             rc={'figure.dpi':dpi,
+#                 'savefig.dpi':dpi_save,
+#                 'figure.figsize':figsize,
+#                 'image.cmap': 'viridis',
+#                 'lines.markersize':6,
+#                 'legend.columnspacing':0.1,
+#                 'legend.borderaxespad':0.1,
+#                 'legend.handletextpad':0.1,
+#                 'pdf.fonttype':42,})
+#     if(rc is not None):
+#         assert isinstance(rc,dict),"rc must be dict"  
+#         for key, value in rc.items():
+#             if key in mpl.rcParams.keys():
+#                 mpl.rcParams[key] = value
+#             else:
+#                 raise Exception("unrecognized property '%s'" % key)
+
+def set_rcParams_scm(fontsize=12, color_map=None, frameon='small'):
     """Set matplotlib.rcParams to scvelo defaults."""
     # dpi options (mpl default: 100, 100)
     rcParams["figure.dpi"] = 100
     rcParams["savefig.dpi"] = 150
 
     # figure (mpl default: 0.125, 0.96, 0.15, 0.91)
-    rcParams["figure.figsize"] = (6, 4)
+    rcParams["figure.figsize"] = (5.4, 4.8)
     rcParams["figure.subplot.left"] = 0.18
     rcParams["figure.subplot.right"] = 0.96
     rcParams["figure.subplot.bottom"] = 0.15
@@ -162,6 +166,12 @@ def set_rcParams_scvelo(fontsize=12, color_map=None, frameon=None):
         "DejaVu Sans",
         "Bitstream Vera Sans",
         "sans-serif",
+    ]
+    rcParams["font.serif"] = [
+        'Times New Roman', 
+        'Times',
+        'DejaVu Serif', 
+        'Palatino', 'Charter', 'serif',
     ]
 
     fontsize = fontsize
@@ -206,77 +216,82 @@ def set_rcParams_scvelo(fontsize=12, color_map=None, frameon=None):
     _frameon = frameon
 
 
-# def set_rcParams_scanpy(fontsize=12, color_map=None, frameon=None):
-#     """Set matplotlib.rcParams to Scanpy defaults."""
-#     # dpi options
-#     rcParams["figure.dpi"] = 100
-#     rcParams["savefig.dpi"] = 150
+def set_rcParams_scanpy(fontsize=12, color_map=None, frameon=None):
+    """Set matplotlib.rcParams to Scanpy defaults."""
+    # dpi options
+    rcParams["figure.dpi"] = 100
+    rcParams["savefig.dpi"] = 150
 
-#     # figure
-#     rcParams["figure.figsize"] = (4, 4)
-#     rcParams["figure.subplot.left"] = 0.18
-#     rcParams["figure.subplot.right"] = 0.96
-#     rcParams["figure.subplot.bottom"] = 0.15
-#     rcParams["figure.subplot.top"] = 0.91
+    # figure
+    rcParams["figure.figsize"] = (4, 4)
+    rcParams["figure.subplot.left"] = 0.18
+    rcParams["figure.subplot.right"] = 0.96
+    rcParams["figure.subplot.bottom"] = 0.15
+    rcParams["figure.subplot.top"] = 0.91
 
-#     rcParams["lines.linewidth"] = 1.5  # the line width of the frame
-#     rcParams["lines.markersize"] = 6
-#     rcParams["lines.markeredgewidth"] = 1
+    rcParams["lines.linewidth"] = 1.5  # the line width of the frame
+    rcParams["lines.markersize"] = 6
+    rcParams["lines.markeredgewidth"] = 1
 
-#     # font
-#     rcParams["font.sans-serif"] = [
-#         "Arial",
-#         "Helvetica",
-#         "DejaVu Sans",
-#         "Bitstream Vera Sans",
-#         "sans-serif",
-#     ]
+    # font
+    rcParams["font.sans-serif"] = [
+        "Arial",
+        "Helvetica",
+        "DejaVu Sans",
+        "Bitstream Vera Sans",
+        "sans-serif",
+    ]
 
-#     fontsize = fontsize
-#     labelsize = 0.92 * fontsize
+    fontsize = fontsize
+    labelsize = 0.92 * fontsize
 
-#     rcParams["font.size"] = fontsize
-#     rcParams["legend.fontsize"] = labelsize
-#     rcParams["axes.titlesize"] = fontsize
-#     rcParams["axes.labelsize"] = fontsize
+    rcParams["font.size"] = fontsize
+    rcParams["legend.fontsize"] = labelsize
+    rcParams["axes.titlesize"] = fontsize
+    rcParams["axes.labelsize"] = fontsize
 
-#     # legend
-#     rcParams["legend.numpoints"] = 1
-#     rcParams["legend.scatterpoints"] = 1
-#     rcParams["legend.handlelength"] = 0.5
-#     rcParams["legend.handletextpad"] = 0.4
+    # legend
+    rcParams["legend.numpoints"] = 1
+    rcParams["legend.scatterpoints"] = 1
+    rcParams["legend.handlelength"] = 0.5
+    rcParams["legend.handletextpad"] = 0.4
 
-#     # color cycle
-#     rcParams["axes.prop_cycle"] = cycler(color=vega_20)
+    # lines
+    rcParams["axes.linewidth"] = 0.8
+    rcParams["axes.edgecolor"] = "black"
+    rcParams["axes.facecolor"] = "white"
 
-#     # lines
-#     rcParams["axes.linewidth"] = 0.8
-#     rcParams["axes.edgecolor"] = "black"
-#     rcParams["axes.facecolor"] = "white"
+    # ticks
+    rcParams["xtick.color"] = "k"
+    rcParams["ytick.color"] = "k"
+    rcParams["xtick.labelsize"] = fontsize
+    rcParams["ytick.labelsize"] = fontsize
 
-#     # ticks
-#     rcParams["xtick.color"] = "k"
-#     rcParams["ytick.color"] = "k"
-#     rcParams["xtick.labelsize"] = fontsize
-#     rcParams["ytick.labelsize"] = fontsize
+    # axes grid
+    rcParams["axes.grid"] = True
+    rcParams["grid.color"] = ".8"
 
-#     # axes grid
-#     rcParams["axes.grid"] = True
-#     rcParams["grid.color"] = ".8"
+    # color map
+    rcParams["image.cmap"] = rcParams["image.cmap"] if color_map is None else color_map
 
-#     # color map
-#     rcParams["image.cmap"] = rcParams["image.cmap"] if color_map is None else color_map
+    # frame
+    frameon = True if frameon is None else frameon
+    global _frameon
+    _frameon = frameon
 
-#     # frame
-#     frameon = True if frameon is None else frameon
-#     global _frameon
-#     _frameon = frameon
 
+            
+def set_rcParams_defaults():
+    """Reset `matplotlib.rcParams` to defaults."""
+    from matplotlib import rcParamsDefault
+
+    rcParams.update(rcParamsDefault)
 
 def set_figure_params(
-    style="scvelo",
+    style="scm",
     dpi=100,
     dpi_save=150,
+    font="sans-serif",
     frameon=None,
     vector_friendly=True,
     transparent=True,
@@ -322,21 +337,22 @@ def set_figure_params(
         Only concerns the notebook/IPython environment; see
         `IPython.core.display.set_matplotlib_formats` for more details.
     """
-    if ipython_format is not None:
-        _set_ipython(ipython_format)
     global _rcParams_style
     _rcParams_style = style
     global _vector_friendly
     _vector_friendly = vector_friendly
     global file_format_figs
     file_format_figs = format
+    rcParams["pdf.fonttype"] = 42
     if transparent is not None:
         rcParams["savefig.transparent"] = transparent
     if facecolor is not None:
         rcParams["figure.facecolor"] = facecolor
         rcParams["axes.facecolor"] = facecolor
-    if style == "scvelo":
-        set_rcParams_scvelo(fontsize=fontsize, color_map=color_map, frameon=frameon)
+    if font is not None:
+        rcParams["font.family"] = font
+    if style == "scm":
+        set_rcParams_scm(fontsize=fontsize, color_map=color_map, frameon=frameon)
     elif style == "scanpy":
         set_rcParams_scanpy(fontsize=fontsize, color_map=color_map, frameon=frameon)
     # Overwrite style options if given
@@ -346,15 +362,6 @@ def set_figure_params(
         rcParams["figure.dpi"] = dpi
     if dpi_save is not None:
         rcParams["savefig.dpi"] = dpi_save
-
-
-def set_rcParams_defaults():
-    """Reset `matplotlib.rcParams` to defaults."""
-    from matplotlib import rcParamsDefault
-
-    rcParams.update(rcParamsDefault)
-
-
 
 def _set_start_time():
     from time import time

@@ -11,4 +11,4 @@ from ._palette import palette,red_palette,blue_palette,green_palette,purple_pale
 from .dendrogram import dendrogram
 from .marker import plot_marker
 from ._profile import profile
-from .basic import grouped_value_boxplot,stacked_plot,propotion
+from .basic import grouped_value_boxplot,stacked_plot,propotion,get_colors_from_adata,set_colors

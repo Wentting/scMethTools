@@ -253,6 +253,7 @@ def embedding(
             gene_symbols=gene_symbols,
             groups=groups,
         )
+        
         color_vector, categorical = _color_vector(
             adata,
             value_to_plot,
@@ -265,7 +266,7 @@ def embedding(
         order = slice(None)
         if sort_order is True and value_to_plot is not None and categorical is False:
             # Higher values plotted on top, null values on bottom
-            order = np.argsort(color_vector, kind="stable")[::-1]
+            order = np.argsort(-color_vector, kind="stable")[::-1]
         elif sort_order and categorical:
             # Null points go on bottom
             order = np.argsort(~pd.isnull(color_source_vector), kind="stable")
@@ -281,50 +282,9 @@ def embedding(
         if grid:
             ax = pl.subplot(grid[count], **args_3d)
             axs.append(ax)
-        if frameon ==False:
-            ax.axis('off')
-        elif frameon == 'small':
-            #ax.axis('off')
-            xmin=coords[:, 0].min()
-            xmax=coords[:, 0].max()
-            ymin=coords[:, 1].min()
-            ymax=coords[:, 1].max()
-
-            #ax.spines['left'].set_position(('outward', 10))
-            #ax.spines['bottom'].set_position(('axes', 0))
-            x_s = xmin-(xmax-xmin)/8
-            y_s = ymin-(ymax-ymin)/8
-            x_l  = xmin+(xmax-xmin)/12
-            y_l = ymin+(ymax-ymin)/12
-            ax.spines['left'].set_position(('data', x_s))
-            ax.spines['bottom'].set_position(('data', y_s))
-            ax.spines[['top', 'right']].set_visible(False)
-            ax.spines['bottom'].set_bounds(x_s,x_l)
-            ax.spines['left'].set_bounds(y_s,y_l)
-            ax.plot(x_l, y_s, '>k', transform=ax.transData, clip_on=False)
-            ax.plot(x_s, y_l, '^k', transform=ax.transData, clip_on=False)
-            # Add arrows to the spines by drawing triangle shaped points over them
-            # axes.spines[['bottom', 'right']].set_visible(False)
-            # #参数分别是起点的 x 坐标、起点的 y 坐标、箭头的水平长度、箭头的垂直长度、箭头的宽度和箭头的长度。
-            # ax.arrow(x_l, y_s, (x_l-x_s)/12, 0, head_width = 0.05, color="k", head_length=0.12)      
-            # ax.arrow(x_s ,y_l ,0, (y_l-y_s)/12,  head_width = 0.05, color="k", head_length=0.12) 
-        
-        if title is None:
-            if value_to_plot is not None:
-                ax.set_title(value_to_plot)
-            else:
-                ax.set_title('')
-        else:
-            try:
-                ax.set_title(title[count])
-            except IndexError:
-                logg.warning(
-                    "The title list is shorter than the number of panels. "
-                    "Using 'color' value instead for some plots."
-                )
-                ax.set_title(value_to_plot)
 
         if not categorical:
+            #数值型
             vmin_float, vmax_float, vcenter_float, norm_obj = _get_vboundnorm(
                 vmin, vmax, vcenter, norm, count, color_vector
             )
@@ -334,6 +294,7 @@ def embedding(
                 vcenter_float,
                 norm_obj,
             )
+            kwargs["cmap"]=cmap  #数值型变量接收cmap参数
         else:
             normalize = None
 
@@ -416,26 +377,71 @@ def embedding(
                 **kwargs,
             )
 
-        # remove y and x ticks
-        ax.set_yticks([])
-        ax.set_xticks([])
-        if projection == '3d':
-            ax.set_zticks([])
-
+        if title is None:
+            if value_to_plot is not None:
+                ax.set_title(value_to_plot)
+            else:
+                ax.set_title('')
+        else:
+            try:
+                ax.set_title(title[count])
+            except IndexError:
+                logg.warning(
+                    "The title list is shorter than the number of panels. "
+                    "Using 'color' value instead for some plots."
+                )
+                ax.set_title(value_to_plot)
+        #ax.set(xticks=[], yticks=[], xlabel=None, ylabel=None)
+        ax.set(xticks=[], yticks=[])
         # set default axis_labels
         name = _basis2name(basis)
         axis_labels = [name + str(d + 1) for d in dims]
+        ax.set_xlabel(axis_labels[0].replace('X_', ' '))
+        ax.set_ylabel(axis_labels[1].replace('X_', ' '))
+        
+        if frameon ==False:
+            ax.axis('off')
+           
+        elif frameon == 'small':
+        
+            xmin=coords[:, 0].min()
+            xmax=coords[:, 0].max()
+            ymin=coords[:, 1].min()
+            ymax=coords[:, 1].max()
+            y_axis_length = ax.get_window_extent().height
+            x_axis_length = ax.get_window_extent().width
+            ra = y_axis_length/x_axis_length
+            #ax.spines['left'].set_position(('outward', 10))
+            #ax.spines['bottom'].set_position(('axes', 0))
+            x_s = xmin- ra * ((xmax-xmin)/5)
+            y_s = ymin-((ymax-ymin)/5)
+            x_l  = xmin+ ra * (ymax-ymin)/24
+            y_l = ymin+(ymax-ymin)/24
+            
+            
+            ax.spines['left'].set_position(('data', x_s))
+            ax.spines['bottom'].set_position(('data', y_s))
+            ax.spines[['top', 'right']].set_visible(False)
+            ax.spines['bottom'].set_bounds(x_s,x_l)
+            
+            ax.spines['left'].set_bounds(y_s,y_l)
+            ax.plot(x_l, y_s, '>k', transform=ax.transData, clip_on=False,markersize=5,markeredgewidth=0.3)
+            ax.plot(x_s, y_l, '^k', transform=ax.transData, clip_on=False,markersize=5,markeredgewidth=0.3)
 
-        ax.set_xlabel(axis_labels[0].upper().replace('X_', ' '),loc='left',fontsize=legend_fontsize,labelpad=12)
-        ax.set_ylabel(axis_labels[1].upper().replace('X_', ' '),loc='bottom',fontsize=legend_fontsize,labelpad=12)
+            ax.set_xlabel(axis_labels[0].replace('X_', ' '), loc='left', fontsize=10,labelpad=7)
+            ax.xaxis.set_label_coords(0.06, 0.03)
+            ax.set_ylabel(axis_labels[1].replace('X_', ' '),loc='bottom',fontsize=10,labelpad=7)
+            ax.yaxis.set_label_coords(0.03, 0.06)
+
+        
         if projection == '3d':
             # shift the label closer to the axis
-            ax.set_zlabel(axis_labels[2].upper().replace('X_', ' '), labelpad=-7)
+            ax.set_zlabel(axis_labels[2].lower().replace('X_', ' '), labelpad=-7)
         ax.autoscale_view()
 
-        if edges:
+        if edges: #点之间的边
             _utils.plot_edges(ax, adata, basis, edges_width, edges_color, neighbors_key)
-        if arrows:
+        if arrows: #方向与速率有关
             _utils.plot_arrows(ax, adata, basis, arrows_kwds)
 
         if value_to_plot is None:
@@ -485,7 +491,7 @@ def embedding(
     if return_fig is True:
         return fig
     axs = axs if grid else ax
-    _utils.savefig_or_show(basis, show=show, save=save)
+    savefig(basis, show=show, save=save)
     if show is False:
         return axs
 

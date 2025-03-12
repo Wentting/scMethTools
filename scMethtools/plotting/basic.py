@@ -3,7 +3,9 @@ import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
 import seaborn as sns
-from scMethtools._utils import savefig
+#from scMethtools._utils import savefig
+from scanpy.plotting import _utils 
+
 
 def set_colors(adata, key, colors=None, palette=None, n_colors=None):
     """
@@ -260,8 +262,7 @@ def grouped_value_boxplot(adata, color_by, value_column, colors=None,
         sns.despine(ax=ax)
         
         # Save and show figure
-        savefig("boxplot", save=save, show=show)
-        
+        _utils.savefig_or_show("boxplot", show=show, save=save)   
         return fig, ax
 
 def stacked_plot(adata,
@@ -350,8 +351,8 @@ def stacked_plot(adata,
     ax.yaxis.set_tick_params(color='none')
     
     # 显示图形
-    savefig("stacked", save=save, show=show)
-
+    # savefig("stacked", save=save, show=show)
+    _utils.savefig_or_show("stacked", show=show, save=save)  
 def propotion(adata,groupby:str,color_by:str,
                        groupby_list=None,figsize:tuple=(4,6),
                        ticks_fontsize:int=12,labels_fontsize:int=12,ax=None,
