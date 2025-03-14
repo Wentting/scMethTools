@@ -8,6 +8,7 @@
 from ._scatter import embedding
 import matplotlib.pyplot as plt
 import matplotlib.pyplot as plt
+import scanpy as sc
 
 
 def plot_marker(adata,basis="umap",top=10,key_added='rank_genes_groups',cluster=None, ncols=5, axes_size=3, dpi=150,**kwargs):
@@ -48,4 +49,28 @@ def plot_marker(adata,basis="umap",top=10,key_added='rank_genes_groups',cluster=
         ax.set_title(f'{item}',fontsize=8)
     fig.suptitle(f'{cluster} Top {top} Markers') 
     fig.subplots_adjust(top=0.9)  #设置顶部间距为 90%，可以根据需要调整具体数值
+    return None
+
+def plot_marker_violin(adata,top=20,groupby=None,key_added='rank_genes_groups', figsize=None, fontsize=None,dpi=None, show=None, save=None, **kwargs):
+    
+    _figsize = figsize if figsize is not None else plt.rcParams["figure.figsize"]
+    _fontsize = fontsize if fontsize is not None else plt.rcParams["font.size"]
+    _dpi = dpi if dpi is not None else plt.rcParams["figure.dpi"]
+    
+    # Extract the top marker genes for each group
+    try:
+        var_names = []
+        gene_dict = adata.uns[key_added]['names']  # Dictionary of ranked gene names
+        for group in gene_dict:  # Iterate over all groups
+            var_names.extend(gene_dict[group][:top])  # Select top N genes per group
+        var_names = list(set(var_names))  # Remove duplicates
+    except Exception as e:
+        raise ValueError(f"Error while retrieving gene names: {e}")
+
+    # Plot violin plots for the selected genes
+    sc.pl.rank_genes_groups_violin(
+        adata, n_genes=top, groupby=groupby, key=key_added, var_names=var_names, 
+        use_raw=True, log=False, figsize=_figsize, show=show, save=save, **kwargs
+    )
+
     return None

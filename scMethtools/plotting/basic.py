@@ -5,6 +5,8 @@ import matplotlib.pyplot as plt
 import seaborn as sns
 #from scMethtools._utils import savefig
 from scanpy.plotting import _utils 
+from ..get import rank_genes_groups_df
+from typing import List, Optional, Union
 
 
 def set_colors(adata, key, colors=None, palette=None, n_colors=None):
@@ -431,76 +433,82 @@ def propotion(adata,groupby:str,color_by:str,
     if ax==None:
         return fig,ax
     
-def plot_volcano(results_df, log2_fc_col='log2_fold_change', pval_col='p_value', alpha=0.05, lfc_threshold=1.0):
+def plot_volcano(adata: ad.AnnData,
+    group: Union[str, List[str]],
+    key: Optional[str] = "rank_genes_groups",
+    log2_fc_col='logfoldchanges', pval_col='pvals', alpha=0.05, lfc_threshold=2.0,point_size=None, 
+    color_palette=None, show_name=True,figsize=None, fontsize=None, dpi=None,
+                          show=None, save=None, title=None, **kwargs):
     """
-    Generate a volcano plot for the differential expression results.
+    Generate a volcano plot for the differential analysis results.
     Parameters:
-    results_df (pd.DataFrame): DataFrame containing the differential expression analysis results.
+    ----------
+    adata (ad.AnnData): AnnData object containing the differential analysis results.
+    group (str or list): Group to plot results for.
+    key (str): Key in adata.uns containing the differential analysis results.
     log2_fc_col (str): Column name for log2 fold change.
     pval_col (str): Column name for p-value.
     alpha (float): Significance threshold for p-value.
-    lfc_threshold (float): Threshold for log2 fold change to consider a gene significantly differentially expressed.
+    lfc_threshold (float): Threshold for log2 fold change to consider a gene significantly differentially methylated.
+    
+    Examples
+    --------
+    >>> import scMethtools as scm
+    >>> # Basic usage with default parameters
+    >>> scm.pl.plot_volcano(adata, group=None)
+    >>> plot_volcano(adata,group='0')
+    #filter
+    >>> plot_volcano(adata,group='0',show_name=False,log2fc_max=10)
+
     """
+        # Use provided parameters or global settings
+    _figsize = figsize if figsize is not None else plt.rcParams["figure.figsize"]
+    _fontsize = fontsize if fontsize is not None else plt.rcParams["font.size"]
+    _dpi = dpi if dpi is not None else plt.rcParams["figure.dpi"]
+    _title_fontsize= _fontsize * 1.1
+    # 默认点大小
+    if point_size is None:
+        point_size = 30  # 默认大小
+    # 默认颜色
+    if color_palette is None:
+        color_palette = {'hypermethylated': 'red', 'hypomethylated': 'blue', 'nonsignificant': 'gray'}
+        
+    # Pull dataframe from adata object, and select columns of interest
+    results_df = sc.get.rank_genes_groups_df(adata, group=group, key=key,**kwargs)
     # Ensure p-value column is numeric
     results_df[pval_col] = pd.to_numeric(results_df[pval_col], errors='coerce')
     # Calculate -log10(p-value)
     results_df['-log10_pvalue'] = -np.log10(results_df[pval_col])
     # Determine significance and direction of regulation
     results_df['significance'] = (results_df[pval_col] < alpha) & (np.abs(results_df[log2_fc_col]) > lfc_threshold)
-    results_df['regulation'] = ['upregulated' if lfc > 0 and sig else 'downregulated' if lfc < 0 and sig else 'nonsignificant'
+    results_df['regulation'] = ['hypermethylated' if lfc > 0 and sig else 'hypomethylated' if lfc < 0 and sig else 'nonsignificant'
                                 for lfc, sig in zip(results_df[log2_fc_col], results_df['significance'])]
     
     # Get the top significantly expressed genes
-    top_sig_genes = results_df[results_df['significance']].nsmallest(10, 'padj')['gene_name'].tolist()
+    top_sig_genes = results_df[results_df['significance']].nsmallest(10, 'pvals_adj')['names'].tolist()
     if len(top_sig_genes) < 10:
         top_sig_gene_labels = top_sig_genes
     else:
         top_sig_gene_labels = [f'{gene_name[:15]}...' for gene_name in top_sig_genes]
     
     # Create the volcano plot
-    plt.figure(figsize=(10, 8))
+    plt.figure(figsize=_figsize, dpi=int(_dpi))
     sns.scatterplot(x=log2_fc_col, y='-log10_pvalue', data=results_df,
-                    hue='regulation', palette={'upregulated': 'red', 'downregulated': 'blue', 'nonsignificant': 'gray'},
-                    alpha=0.6)
+                    hue='regulation', palette=color_palette,
+                    alpha=0.4,s=point_size)
     plt.axhline(-np.log10(alpha), ls='--', color='black', lw=0.5)
     plt.axvline(lfc_threshold, ls='--', color='black', lw=0.5)
     plt.axvline(-lfc_threshold, ls='--', color='black', lw=0.5)
-    plt.xlabel('Log2 Fold Change')
-    plt.ylabel('-Log10 p-value')
-    plt.title('Volcano Plot of Differential Expression')
-    plt.legend(title='Regulation', loc='upper right')
+    plt.xlabel('Log2Fold Change',fontsize=_fontsize)
+    plt.ylabel('-Log10 p-value',fontsize=_fontsize)
+    #plt.title('Volcano Plot of Differential Methylation',fontsize=_title_fontsize)
+    plt.legend(title='Regulation', loc='upper left',bbox_to_anchor=(1, 1), fontsize=_fontsize*0.8)
     
-    # Add gene names for top significantly expressed genes
-    for i, gene_name in enumerate(top_sig_gene_labels):
-        plt.annotate(gene_name, (results_df.loc[results_df['gene_name'] == top_sig_genes[i], log2_fc_col].values[0],
-                                 results_df.loc[results_df['gene_name'] == top_sig_genes[i], '-log10_pvalue'].values[0]),
-                     fontsize=8)
+    if show_name:
+        # Add gene names for top significantly features
+        for i, gene_name in enumerate(top_sig_gene_labels):
+            plt.annotate(gene_name, (results_df.loc[results_df['names'] == top_sig_genes[i], log2_fc_col].values[0],
+                                    results_df.loc[results_df['names'] == top_sig_genes[i], '-log10_pvalue'].values[0]),
+                        fontsize=8)
     
-    plt.show()
-
-def plot_heatmap(results_df, adata, top_n=20):
-    """
-    Plot a heatmap of the top differentially expressed genes.
-    Parameters:
-    results_df (pd.DataFrame): DataFrame containing the differential expression analysis results.
-    adata (anndata.AnnData): AnnData object containing the counts matrix and metadata.
-    top_n (int): Number of top genes to display in the heatmap.
-    """
-    # Select the top_n differentially expressed genes by adjusted p-value
-    top_genes = results_df.nsmallest(top_n, 'padj')['gene']
-    top_genes_data = adata[:, top_genes].X
-    
-    # Ensure the data is in the correct format
-    if not isinstance(top_genes_data, np.ndarray):
-        top_genes_data = top_genes_data.toarray()
-    
-    # Get the corresponding gene names
-    top_gene_names = results_df.loc[results_df['gene'].isin(top_genes), 'gene_name'].tolist()
-    
-    # Create a heatmap
-    plt.figure(figsize=(12, 10))
-    sns.heatmap(top_genes_data, yticklabels=adata.obs.index, xticklabels=top_gene_names, cmap='RdBu_r', cbar=True)
-    plt.title(f'Top {top_n} Differentially Expressed Genes')
-    plt.xlabel('Gene Names')
-    plt.ylabel('Samples')
     plt.show()

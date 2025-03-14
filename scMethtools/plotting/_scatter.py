@@ -491,7 +491,7 @@ def embedding(
     if return_fig is True:
         return fig
     axs = axs if grid else ax
-    savefig(basis, show=show, save=save)
+    _utils.savefig_or_show(basis, show=show, save=save)
     if show is False:
         return axs
 
@@ -743,62 +743,6 @@ def tsne(adata, **kwargs) -> Union[Axes, List[Axes], None]:
     tl.tsne
     """
     return embedding(adata, 'tsne', **kwargs)
-
-
-@_wraps_plot_scatter
-@_doc_params(
-    adata_color_etc=doc_adata_color_etc,
-    edges_arrows=doc_edges_arrows,
-    scatter_bulk=doc_scatter_embedding,
-    show_save_ax=doc_show_save_ax,
-)
-def draw_graph(
-    adata: AnnData, *, layout: Optional[_IGraphLayout] = None, **kwargs
-) -> Union[Axes, List[Axes], None]:
-    """\
-    Scatter plot in graph-drawing basis.
-
-    Parameters
-    ----------
-    {adata_color_etc}
-    layout
-        One of the :func:`~scanpy.tl.draw_graph` layouts.
-        By default, the last computed layout is used.
-    {edges_arrows}
-    {scatter_bulk}
-    {show_save_ax}
-
-    Returns
-    -------
-    If `show==False` a :class:`~matplotlib.axes.Axes` or a list of it.
-
-    Examples
-    --------
-    .. plot::
-        :context: close-figs
-
-        import scanpy as sc
-        adata = sc.datasets.pbmc68k_reduced()
-        sc.tl.draw_graph(adata)
-        sc.pl.draw_graph(adata, color=['phase', 'bulk_labels'])
-
-    .. currentmodule:: scanpy
-
-    See also
-    --------
-    tl.draw_graph
-    """
-    if layout is None:
-        layout = str(adata.uns['draw_graph']['params']['layout'])
-    basis = 'draw_graph_' + layout
-    if 'X_' + basis not in adata.obsm_keys():
-        raise ValueError(
-            'Did not find {} in adata.obs. Did you compute layout {}?'.format(
-                'draw_graph_' + layout, layout
-            )
-        )
-
-    return embedding(adata, basis, **kwargs)
 
 
 @_wraps_plot_scatter

@@ -25,6 +25,7 @@ max_other_fold = 5
 cpu = 10
 
 def cosg(adata,groupby):
+    
     import cosg as cosg
     #缺失填充
     adata.X = np.nan_to_num(adata.X)
@@ -49,10 +50,42 @@ def cosg(adata,groupby):
                   standard_scale = 'var')
 
 def mdiff_pairwise(adata,group_by:str,groups:list[str],reference:str,method='wilcoxon',key_added = "rank_genes_groups",top_n=100,matrix=False):
+    """   
+    Perform differential methylation analysis on single-cell data.
+    Parameters:
+    -----------
+    adata : AnnData
+        Annotated data matrix.
+    group_by : str
+        The key of the observation grouping to consider.
+    groups : list[str]
+        List of groups to compare.
+    reference : str
+        The reference group to compare against.
+    method : str, optional (default: 'wilcoxon')
+        The method to use for differential analysis. Options are 't-test' or 'wilcoxon'.
+    key_added : str, optional (default: "rank_genes_groups")
+        The key under which the results will be stored in `adata.uns`.
+    top_n : int, optional (default: 100)
+        Number of top differentially methylated genes to consider.
+    matrix : bool, optional (default: False)
+        If True, returns a DataFrame with the results.
+    Returns:
+    --------
+    result : DataFrame or None
+        If `matrix` is True, returns a DataFrame with the differential methylation results.
+        Otherwise, returns None.
+    Raises:
+    -------
+    ValueError
+        If the `method` is not 't-test' or 'wilcoxon'.
+    Notes:
+    ------
+    The function logs the value counts of the groups and the progress of the analysis.
     """
-    """
+
     logging.info(adata.obs[group_by].value_counts())  
-    logging.info("... Running differential methylation analysis")
+    print(f"... Running differential methylation analysis between groups {groups} and reference {reference}")
     if method == "t-test":
         sc.tl.rank_genes_groups(adata, groupby=group_by, groups = groups, reference = reference, key_added = key_added, method='t-test_overestim_var', n_genes=top_n)
     elif method == "wilcoxon":
@@ -67,42 +100,7 @@ def mdiff_pairwise(adata,group_by:str,groups:list[str],reference:str,method='wil
         return result
     else:       
         return None
-    
-def mdiff(adata, group_by, method='wilcoxon', key_added = "rank_genes_groups",top_n=100,matrix=False):
-    """
-    Differential methylation analysis
-
-
-    Args:
-        adata (_type_): _description_
-        group_by (str, optional): _description_. Defaults to "Treatment".
-        groups (list, optional): _description_. Defaults to ['2i'].
-        reference (str, optional): _description_. Defaults to 'serum/LIF'.
-        method (str, optional): _description_. Defaults to 't-test'.
-        key_added (str, optional): _description_. Defaults to "t-test".
-        n_genes (int, optional): _description_. Defaults to 100.
-    """
-    logging.info("... Running differential methylation analysis")
-    #TO DO : exclude nan values
-    
-    if method == "t-test":
-        sc.tl.rank_genes_groups(adata, groupby=group_by, method='t-test_overestim_var', key_added = key_added ,n_genes=top_n, )
-    elif method == "wilcoxon":
-        sc.tl.rank_genes_groups(adata, groupby=group_by, method='wilcoxon', key_added = key_added ,n_genes=top_n)
-    else:
-        raise ValueError("method must be 't-test' or 'wilcoxon'")
-        
-    adata.uns[key_added]['params'] = { 'groups': group_by, 'method': method}
-    
-    if matrix == True:
-        result = dmr_df(adata, key_added=key_added)
-        return result
-    else:       
-        return None     
-
-
-    
-
+      
 def one_vs_rest(adata,obs_dim,cluster,top_n = 100,method="wilcoxon"):
     cluster_judge = adata.obs[obs_dim] == cluster
     one_cells = cluster_judge[cluster_judge]
