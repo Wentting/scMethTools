@@ -7,6 +7,7 @@ import seaborn as sns
 from scanpy.plotting import _utils 
 from ..get import rank_genes_groups_df
 from typing import List, Optional, Union
+import scanpy as sc
 
 
 def set_colors(adata, key, colors=None, palette=None, n_colors=None):

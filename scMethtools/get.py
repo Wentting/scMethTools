@@ -98,3 +98,65 @@ def rank_genes_groups_df(
         d.drop(columns="group", inplace=True)
 
     return d.reset_index(drop=True)
+
+
+def get_dmr_genes(adata, key_added="dmr_genes", groups=None, gene_symbols=None):
+    
+    list(adata.uns[key_added]['names'].dtype.names)
+    group = "celltype_A"
+    gene_list =  list(set(np.concatenate([adata.uns[key_added]['names'][group] for group in ['ESC 2i', 'MII oocyte ']])))
+    logfc = pd.DataFrame(adata.uns['rank_genes_groups']['logfoldchanges'], index=adata.uns['rank_genes_groups']['names'])
+    up_genes = logfc[group][logfc[group] > 0].index.tolist()   # 上调基因
+    down_genes = logfc[group][logfc[group] < 0].index.tolist() # 下调基因
+    
+    pass
+
+def get_region_genes(
+    adata: AnnData,
+    region_key: str,
+    *,
+    key_added: str = "region_genes",
+    gene_symbols: str | None = None,
+) -> None:
+    """\
+    Get genes associated with genomic regions.
+
+    Params
+    ------
+    adata
+        Object to get results from.
+    region_key
+        Key in `adata.var` that stores region information.
+    key_added
+        Key to store results under.
+    gene_symbols
+        Column name in `.var` DataFrame that stores gene symbols. Specifying
+        this will add that column to the returned dataframe.
+
+    Example
+    -------
+    >>> import scanpy as sc
+    >>> pbmc = sc.datasets.pbmc68k_reduced()
+    >>> sc.get.get_region_genes(pbmc, region_key="gene_id")
+    """
+    # 确保 names 是列表
+    if not isinstance(regions, list):
+        raise ValueError("regions 参数必须是列表")
+    
+    #把region换成gene，前提是已经做过注释了
+    adata.var[adata.var.index.get_indexer(all_genes)]['Gene']
+    # 确保 all_genes 存在于 adata.var.index
+    valid_genes = [gene for gene in all_genes if gene in adata.var.index]
+
+    # 提取对应的基因信息
+    gene_list= adata.var.loc[valid_genes, 'Gene'].dropna().str.upper().tolist()
+    
+    if gene_symbols is not None:
+        adata.var[gene_symbols] = adata.var_names
+
+    adata.uns[key_added] = {}
+    for region in adata.var[region_key].unique():
+        genes = adata.var_names[adata.var[region_key] == region]
+        if gene_symbols is not None:
+            genes = adata.var[gene_symbols][adata.var[region_key] == region]
+        adata.uns[key_added][region] = genes
