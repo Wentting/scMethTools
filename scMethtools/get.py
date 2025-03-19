@@ -1,4 +1,4 @@
-from typing import TYPE_CHECKING, TypeVar
+from typing import TYPE_CHECKING, List, Optional, Union
 import numpy as np
 import pandas as pd
 from anndata import AnnData
@@ -100,23 +100,77 @@ def rank_genes_groups_df(
     return d.reset_index(drop=True)
 
 
-def get_dmr_genes(adata, key_added="dmr_genes", groups=None, gene_symbols=None):
+
+def get_group_dmr(
+    adata: AnnData,
+    key_added: str = "rank_genes_groups",
+    groups: Optional[Union[List[str], str]] = None,
+    gene_symbols: Optional[str] = None,
+    direction: str = "both"  # "up", "down", or "both"
+) -> dict[str, list[str]]:
+    """
+    Get genes associated with DMRs.
+
+    Args:
+        adata (AnnData): AnnData object containing single-cell data.
+        key_added (str, optional): Key in adata.uns where differential analysis results are stored. Defaults to "rank_genes_groups".
+        groups (Optional[Union[List[str], str]], optional): Groups to get genes for. Can be a string or a list of strings. Defaults to None, meaning all groups.
+        gene_symbols (Optional[str], optional): Column name for gene symbols if gene names need to be converted. Defaults to None.
+        direction (str, optional): Direction for gene selection, can be "up" (upregulated genes), "down" (downregulated genes), or "both" (all genes). Defaults to "both".
+
+    Raises:
+        ValueError: If the specified key_added is not found in adata.uns.
+
+    Returns:
+        dict[str, list[str]]: Dictionary of gene lists for each group.
+
+    ---
+    Example:
     
-    list(adata.uns[key_added]['names'].dtype.names)
-    group = "celltype_A"
-    gene_list =  list(set(np.concatenate([adata.uns[key_added]['names'][group] for group in ['ESC 2i', 'MII oocyte ']])))
-    logfc = pd.DataFrame(adata.uns['rank_genes_groups']['logfoldchanges'], index=adata.uns['rank_genes_groups']['names'])
-    up_genes = logfc[group][logfc[group] > 0].index.tolist()   # 上调基因
-    down_genes = logfc[group][logfc[group] < 0].index.tolist() # 下调基因
+    """
     
-    pass
+    if key_added not in adata.uns:
+        raise ValueError(f"{key_added} was not found in `adata.uns`. Please check whether differential analysis has been performed.")
+    if isinstance(groups, str):
+        groups = [groups]
+    # 获取所有分组
+    if groups is None:
+        groups = list(adata.uns[key_added]['names'].dtype.names)
+    
+    # 获取基因名和 logFC 数据
+    gene_names = pd.DataFrame(adata.uns[key_added]['names'])
+    logfc = pd.DataFrame(adata.uns[key_added]['logfoldchanges'], index=gene_names.index)
+
+    result_genes = {}
+
+    for group in groups:
+        # 获取该组的基因
+        genes = gene_names[group].tolist()
+        fc_values = logfc[group]
+
+        # 筛选基因
+        if direction == "up":
+            selected_genes = [genes[i] for i in range(len(genes)) if fc_values[i] > 0]
+        elif direction == "down":
+            selected_genes = [genes[i] for i in range(len(genes)) if fc_values[i] < 0]
+        else:  # both
+            selected_genes = genes
+
+        # 如果需要转换基因名
+        if gene_symbols and gene_symbols in adata.var.columns:
+            selected_genes = adata.var.loc[selected_genes, gene_symbols].dropna().tolist()
+
+        result_genes[group] = selected_genes
+
+    return result_genes
+
+
 
 def get_region_genes(
     adata: AnnData,
-    region_key: str,
-    *,
-    key_added: str = "region_genes",
-    gene_symbols: str | None = None,
+    regions: Optional[str],
+    use_gene_col: str = 'Gene',
+    upper: bool = False,
 ) -> None:
     """\
     Get genes associated with genomic regions.
@@ -141,22 +195,30 @@ def get_region_genes(
     """
     # 确保 names 是列表
     if not isinstance(regions, list):
-        raise ValueError("regions 参数必须是列表")
-    
-    #把region换成gene，前提是已经做过注释了
-    adata.var[adata.var.index.get_indexer(all_genes)]['Gene']
+        raise ValueError("regions must be a list") 
     # 确保 all_genes 存在于 adata.var.index
-    valid_genes = [gene for gene in all_genes if gene in adata.var.index]
-
-    # 提取对应的基因信息
-    gene_list= adata.var.loc[valid_genes, 'Gene'].dropna().str.upper().tolist()
+    valid_regions= [region for region in regions if region in adata.var.index]
+    if  upper:
+        # gene needs to be upper if doing enrichment analysis in scmethtools especially for offline analysis
+        gene_list= adata.var.loc[valid_regions, use_gene_col].dropna().str.upper().tolist()
+    else:
+        gene_list= adata.var.loc[valid_regions, use_gene_col].dropna().str.tolist()
+    return gene_list
+        
+def get_dmr_genes(
+    adata: AnnData,
+    key_added: str = "rank_genes_groups",
+    groups: Optional[Union[List[str], str]] = None,
+    gene_symbols: Optional[str] = None,
+    direction: str = "both" ):
     
-    if gene_symbols is not None:
-        adata.var[gene_symbols] = adata.var_names
-
-    adata.uns[key_added] = {}
-    for region in adata.var[region_key].unique():
-        genes = adata.var_names[adata.var[region_key] == region]
-        if gene_symbols is not None:
-            genes = adata.var[gene_symbols][adata.var[region_key] == region]
-        adata.uns[key_added][region] = genes
+    if key_added not in adata.uns:
+        raise ValueError(f"{key_added} was not found in `adata.uns`. Please check whether differential analysis has been performed.")
+    
+    region_list = get_group_dmr(adata, key_added, groups, gene_symbols, direction)
+    
+    gene_list = get_region_genes(adata, region_list)
+    
+    return gene_list
+    
+    
