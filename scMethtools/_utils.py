@@ -270,3 +270,74 @@ def savefig(
         plt.show()
     if save:
         plt.close()  # clear figure
+        
+
+def savefig(
+    writekey: str = "",
+    show: bool = None,
+    dpi: int = None,
+    save: bool = None,
+):
+    """
+    保存 Matplotlib 生成的图像，并根据参数决定是否显示。
+
+    参数:
+    -----------
+    writekey: `str`
+        要保存的文件名（不带扩展名）。
+    show: `bool`, 可选 (默认: None)
+        是否显示图像。
+    dpi: `int`, 可选 (默认: None)
+        分辨率（每英寸点数）。
+    ext: `str`, 可选 (默认: None)
+        需要保存的文件扩展名（如 "png", "pdf", "svg"）。
+    save: `bool`, 可选 (默认: None)
+        是否保存图像。
+
+    """
+    # 确定是否保存和显示
+    save = settings.autosave if save is None else save
+    show = settings.autoshow if show is None else show
+    
+    # 确定保存路径和文件名
+    if "/" in writekey or "\\" in writekey:  # 如果 writekey 是完整路径
+        filepath = writekey
+        directory = os.path.dirname(filepath)
+    else:  # 否则，使用默认的 settings.figdir
+        directory = settings.figdir.rstrip("/")
+        filepath = os.path.join(directory, writekey)
+    
+    # 自动识别扩展名
+    ext = None
+    for try_ext in [".svg", ".pdf", ".png"]:
+        if filepath.endswith(try_ext):
+            ext = try_ext[1:]  # 去掉前导 `.`
+            filepath = filepath.rsplit(".", 1)[0]  # 去掉扩展名
+            break
+    if ext is None:
+        ext = settings.file_format_figs  # 默认格式
+        
+    # 确保目标文件夹存在
+    if not os.path.exists(directory):
+        os.makedirs(directory)
+    
+    # 最终文件路径
+    final_filepath = f"{filepath}{settings.plot_suffix}.{ext}"    
+    
+    if dpi is None:
+        dpi = rcParams["savefig.dpi"]
+      # 保存图像
+    try:
+        plt.savefig(final_filepath, dpi=dpi, bbox_inches='tight')
+    except ValueError:
+        # 若 .pdf 失败，降级为 .png
+        final_filepath = final_filepath.rsplit(".", 1)[0] + ".png"
+        plt.savefig(final_filepath, dpi=dpi, bbox_inches='tight')
+    
+    print(f"Figure save at: {final_filepath}")
+    # 显示或关闭图像
+    if show:
+        plt.show()
+    if save:
+        plt.close()  # 关闭图像，避免过多窗口累积
+    plt.close()  
