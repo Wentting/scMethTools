@@ -1,47 +1,27 @@
 import scanpy as sc
-from typing import TYPE_CHECKING
 from scanpy import _utils
+from scanpy.plotting._utils import check_colornorm
+from scanpy.plotting._anndata import _prepare_dataframe
+from scanpy.plotting import _utils 
+import scMethtools.logging as logg
 from .basic import get_colors_from_adata, set_colors
-from ..logging import logg
-from pandas.api.types import CategoricalDtype, is_numeric_dtype
-from typing import Union
-import matplotlib as mpl
+
 import numpy as np
 import pandas as pd
-from matplotlib import gridspec, patheffects, rcParams
-from matplotlib import pyplot as plt
-from matplotlib.colors import is_color_like
-from packaging.version import Version
 from pandas.api.types import CategoricalDtype, is_numeric_dtype
-from scipy.sparse import issparse
-import collections.abc as cabc
-from matplotlib.patches import Patch
-from scanpy.plotting._utils import (
-    scatter_base,
-    scatter_group,
-    setup_axes,
-    check_colornorm
-)
-if TYPE_CHECKING:
-    from collections.abc import Collection, Iterable, Mapping, Sequence
-    from typing import Literal, Union
 
-    from anndata import AnnData
-    from cycler import Cycler
-    from matplotlib.axes import Axes
-    from matplotlib.colors import Colormap, ListedColormap, Normalize
-    from seaborn import FacetGrid
-    from seaborn.matrix import ClusterGrid 
-    from pandas.api.types import CategoricalDtype, is_numeric_dtype
-    from collections.abc import Collection, Iterable, Mapping, Sequence
-    from typing import Literal, Union
-    from anndata import AnnData
-    from cycler import Cycler
-    from matplotlib.axes import Axes
-    from matplotlib.colors import Colormap, ListedColormap, Normalize
-    from seaborn import FacetGrid
-    from seaborn.matrix import ClusterGrid
-    _VarNames = Union[str, Sequence[str]]
+import collections.abc as cabc
+from collections.abc import Collection, Iterable, Sequence
+
+from anndata import AnnData
+
+from matplotlib import gridspec, pyplot as plt
+from matplotlib.axes import Axes
+from matplotlib.colors import Normalize
+from matplotlib.patches import Patch
+
+from typing import TYPE_CHECKING, Literal, Union
+
     
 def dmr_heatmap(
     adata: AnnData,

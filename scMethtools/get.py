@@ -1,15 +1,8 @@
 from typing import TYPE_CHECKING, List, Optional, Union
-import numpy as np
 import pandas as pd
 from anndata import AnnData
-from numpy.typing import NDArray
 from packaging.version import Version
-if TYPE_CHECKING:
-    from collections.abc import Collection, Iterable
-    from typing import Any, Literal
-
-    from anndata._core.sparse_dataset import BaseCompressedSparseDataset
-    from anndata._core.views import ArrayView
+from collections.abc import Iterable
 
 
 # TODO: implement diffxpy method, make singledispatch
@@ -18,10 +11,10 @@ def rank_genes_groups_df(
     group: Optional[Union[str, Iterable[str]]],
     *,
     key: str = "rank_genes_groups",
-    pval_cutoff: float | None = None,
-    log2fc_min: float | None = None,
-    log2fc_max: float | None = None,
-    gene_symbols: str | None = None,
+    pval_cutoff: Optional[float] = None,  
+    log2fc_min: Optional[float] = None, 
+    log2fc_max: Optional[float] = None,   
+    gene_symbols: Optional[str] = None    
 ) -> pd.DataFrame:
     """\
     :func:`scanpy.tl.rank_genes_groups` results in the form of a

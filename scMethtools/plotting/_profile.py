@@ -173,12 +173,8 @@ def SetColor(x):
     if x == -1:
         return "blue"
     
-def parse_gtf_exons():
+def parse_gtf_exons(gtf,chrom,start,end):
     recs = {}  # Dictionary to store the records
-    gtf = "D://Test/GSE97693/genome/gencode.v41.basic.annotation.gtf"
-    chrom = "chr16"
-    start = 1110627
-    end = 1112627
     # Open the GTF file
     with open(gtf, 'r') as f:
         # Iterate through each line in the file

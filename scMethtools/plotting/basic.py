@@ -5,9 +5,12 @@ import matplotlib.pyplot as plt
 import seaborn as sns
 #from scMethtools._utils import savefig
 from scanpy.plotting import _utils 
-from ..get import rank_genes_groups_df
+# from ..get import rank_genes_groups_df
 from typing import List, Optional, Union
 import scanpy as sc
+import warnings
+warnings.simplefilter(action='ignore', category=FutureWarning)
+
 
 
 def set_colors(adata, key, colors=None, palette=None, n_colors=None):

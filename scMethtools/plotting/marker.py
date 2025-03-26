@@ -45,7 +45,7 @@ def plot_marker(adata,basis="umap",top=10,key_added='rank_genes_groups',cluster=
         else:
             frameon = False        
         # print(item)
-        embedding(adata,basis=basis,ax=ax,frameon=frameon, color=item,size=50,show=False,wspace=0.1)
+        embedding(adata,basis=basis,ax=ax,frameon=frameon, color=item,size=50,show=False,wspace=0.1, **kwargs)
         ax.set_title(f'{item}',fontsize=8)
     fig.suptitle(f'{cluster} Top {top} Markers') 
     fig.subplots_adjust(top=0.9)  #设置顶部间距为 90%，可以根据需要调整具体数值

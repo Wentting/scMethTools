@@ -15,6 +15,7 @@ from . import preprocessing as pp
 from . import plotting as pl
 from . import dmr as dm
 from . import get as get
+from . import settings as settings
 # read functions from AnnData
 from anndata import AnnData
 from anndata import read
