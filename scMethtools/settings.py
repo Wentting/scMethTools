@@ -30,7 +30,7 @@ Allowed are 'txt', 'csv' (comma separated value file) for exporting and 'h5ad'
 (hdf5) for lossless saving.
 """
 
-file_format_figs = "pdf"
+file_format_figs = "png"
 """File format for saving figures.
 For example 'png', 'pdf' or 'svg'. Many other formats work as well (see
 `matplotlib.pyplot.savefig`).

@@ -188,126 +188,54 @@ def pcorr(A, B):
 
 
 def savefig(
-    writekey=str,
-    show= None,
-    dpi=None,
-    ext= None,
-    save=None,
-):
-    """
-
-    Parameters:
-    -----------
-    writekey: `str`
-        The name of the file to save the figure to.
-    show: `bool`, optional (default: None)
-        Whether to display the figure.
-    dpi: `int`, optional (default: None)
-        The resolution of the figure in dots per inch.  
-    ext: `str`, optional (default: None)
-        The file extension of the figure. 
-    save: `bool`, optional (default: None)
-        Whether to save the figure.
-    ____________________________________________________________
-    savefig(dpi=dpi, save=save, show=show)
-    """
-    if isinstance(save, str):
-        # check whether `save` contains a figure extension
-        if ext is None:
-            for try_ext in [".svg", ".pdf", ".png"]:
-                if save.endswith(try_ext):
-                    ext = try_ext[1:]
-                    save = save.replace(try_ext, "")
-                    break
-        # append it
-        writekey += save
-        save = True
-    save = settings.autosave if save is None else save
-    show = settings.autoshow if show is None else show
-    if save:
-        if dpi is None:
-            # needed in nb b/c internal figures are also influenced by 'savefig.dpi'.
-            if (
-                not isinstance(rcParams["savefig.dpi"], str)
-                and rcParams["savefig.dpi"] < 150
-            ):
-                if settings._low_resolution_warning:
-                    logg.warn(
-                        "You are using a low resolution (dpi<150) for saving figures.\n"
-                        "Consider running `set_figure_params(dpi_save=...)`, which "
-                        "will adjust `matplotlib.rcParams['savefig.dpi']`"
-                    )
-                    settings._low_resolution_warning = False
-            else:
-                dpi = rcParams["savefig.dpi"]
-        if len(settings.figdir) > 0:
-            if settings.figdir[-1] != "/":
-                settings.figdir += "/"
-            if not os.path.exists(settings.figdir):
-                os.makedirs(settings.figdir)
-        if ext is None:
-            ext = settings.file_format_figs
-        filepath = f"{settings.figdir}{settings.plot_prefix}{writekey}"
-        #print('writekey',writekey)
-        if "/" in writekey:
-            filepath = f"{writekey}"
-        try:
-            #plot_suffix = scm
-            filename = filepath + f"{settings.plot_suffix}.{ext}"
-            plt.savefig(filename, dpi=dpi,bbox_inches='tight')
-        except ValueError as e:
-            # save as .png if .pdf is not feasible (e.g. specific streamplots)
-            filename = filepath + f"{settings.plot_suffix}.png"
-            plt.savefig(filename, dpi=dpi,bbox_inches='tight')
-            logg_message = (
-                f"figure cannot be saved as {ext}, using png instead "
-                f"({e.__str__().lower()})."
-            )
-            logg.msg(logg_message, v=1)
-        logg.msg("saving figure to file", filename, v=1)
-        print(f"Fig saved at {filename}")
-    if show:
-        plt.show()
-    if save:
-        plt.close()  # clear figure
-        
-
-def savefig(
     writekey: str = "",
-    show: bool = None,
+    show: bool = True,
     dpi: int = None,
-    save: bool = None,
+    save: bool = True,
 ):
-    """
-    保存 Matplotlib 生成的图像，并根据参数决定是否显示。
+    """ 
+    save fig to file and show or close the figure.  
 
-    参数:
+    Parameters
     -----------
-    writekey: `str`
-        要保存的文件名（不带扩展名）。
-    show: `bool`, 可选 (默认: None)
-        是否显示图像。
-    dpi: `int`, 可选 (默认: None)
-        分辨率（每英寸点数）。
-    ext: `str`, 可选 (默认: None)
-        需要保存的文件扩展名（如 "png", "pdf", "svg"）。
-    save: `bool`, 可选 (默认: None)
-        是否保存图像。
+    writekey: str
+        The path and name of the file to save the figure. If the path is not specified, the figure will be saved to the default path.
+    show: bool
+        Whether to show the figure. Default is True.
+    dpi: int
+        Resolution of the figure. Default is None.
+    save: bool or str
+        Whether to save the figure. Default is True.
+        if save is a string, it will be used as the path and name of the file to save the figure.
+    Returns         
+    --------------------
+    example:
+    savefig('./test.png',save=False)
+    savefig(save='./test.png',show=False)
+    
 
     """
     # 确定是否保存和显示
     save = settings.autosave if save is None else save
     show = settings.autoshow if show is None else show
+
+    #需要照顾一个问题，save，通过外部函数指定路径和名称的时候需要拿进来，拿进来之后就是和writekey进行一下组装
+    if isinstance(save, str):
+        #如果save不是bool，而是传入了一个字符串
+        writekey = save
     
     # 确定保存路径和文件名
     if "/" in writekey or "\\" in writekey:  # 如果 writekey 是完整路径
         filepath = writekey
         directory = os.path.dirname(filepath)
-    else:  # 否则，使用默认的 settings.figdir
+        save=True
+    else:  
+        # 否则，使用默认的 settings.figdir
+        #figdir = "./figures/" 当前目录下
         directory = settings.figdir.rstrip("/")
         filepath = os.path.join(directory, writekey)
     
-    # 自动识别扩展名
+    # 自动识别扩展名，如果没有就使用setting中预设的扩展名
     ext = None
     for try_ext in [".svg", ".pdf", ".png"]:
         if filepath.endswith(try_ext):
@@ -327,14 +255,16 @@ def savefig(
     if dpi is None:
         dpi = rcParams["savefig.dpi"]
       # 保存图像
-    try:
-        plt.savefig(final_filepath, dpi=dpi, bbox_inches='tight')
-    except ValueError:
-        # 若 .pdf 失败，降级为 .png
-        final_filepath = final_filepath.rsplit(".", 1)[0] + ".png"
-        plt.savefig(final_filepath, dpi=dpi, bbox_inches='tight')
+    if save:
+        try:
+            plt.savefig(final_filepath, dpi=dpi, bbox_inches='tight')
+        except ValueError:
+            # 若 .pdf 失败，降级为 .png
+            print(f"Saving pdf figure failed, falling back to png.")
+            final_filepath = final_filepath.rsplit(".", 1)[0] + ".png"
+            plt.savefig(final_filepath, dpi=dpi, bbox_inches='tight')
     
-    print(f"Figure save at: {final_filepath}")
+    print(f"Saving figure to : {final_filepath}")
     # 显示或关闭图像
     if show:
         plt.show()

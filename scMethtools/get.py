@@ -15,7 +15,7 @@ if TYPE_CHECKING:
 # TODO: implement diffxpy method, make singledispatch
 def rank_genes_groups_df(
     adata: AnnData,
-    group: str | Iterable[str] | None,
+    group: Optional[Union[str, Iterable[str]]],
     *,
     key: str = "rank_genes_groups",
     pval_cutoff: float | None = None,
@@ -198,11 +198,12 @@ def get_region_genes(
         raise ValueError("regions must be a list") 
     # 确保 all_genes 存在于 adata.var.index
     valid_regions= [region for region in regions if region in adata.var.index]
+    #print(valid_regions)
     if  upper:
         # gene needs to be upper if doing enrichment analysis in scmethtools especially for offline analysis
         gene_list= adata.var.loc[valid_regions, use_gene_col].dropna().str.upper().tolist()
     else:
-        gene_list= adata.var.loc[valid_regions, use_gene_col].dropna().str.tolist()
+        gene_list= adata.var.loc[valid_regions, use_gene_col].dropna().tolist()
     return gene_list
         
 def get_dmr_genes(
@@ -210,15 +211,24 @@ def get_dmr_genes(
     key_added: str = "rank_genes_groups",
     groups: Optional[Union[List[str], str]] = None,
     gene_symbols: Optional[str] = None,
-    direction: str = "both" ):
+    direction: str = "both" ,
+    use_gene_col: str = 'Gene',
+    upper: bool = True,
+    ):
     
     if key_added not in adata.uns:
         raise ValueError(f"{key_added} was not found in `adata.uns`. Please check whether differential analysis has been performed.")
+    if isinstance(groups, str):
+        groups = [groups]
+    # 获取所有分组
+    if groups is None:
+        groups = list(adata.uns[key_added]['names'].dtype.names)
+    group_region = get_group_dmr(adata, key_added, groups, gene_symbols, direction) #返回的是一个字典
+
+    group_genes={}
     
-    region_list = get_group_dmr(adata, key_added, groups, gene_symbols, direction)
-    
-    gene_list = get_region_genes(adata, region_list)
-    
-    return gene_list
-    
+    for g in groups:
+        gene_list = get_region_genes(adata, group_region[g],upper=upper,use_gene_col= use_gene_col)
+        group_genes[g] = gene_list
+    return group_genes
     

@@ -12,3 +12,5 @@ from .dendrogram import dendrogram
 from .marker import plot_marker,plot_marker_violin
 from ._profile import profile
 from .basic import grouped_value_boxplot,stacked_plot,propotion,get_colors_from_adata,set_colors,plot_volcano
+from .enrichment import plot_enrichment
+from .heatmap import heatmap,dmr_heatmap

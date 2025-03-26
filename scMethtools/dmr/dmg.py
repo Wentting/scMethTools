@@ -15,6 +15,8 @@ import seaborn as sns
 from PyComplexHeatmap import *
 import logging
 from ..preprocessing.get_df import dmr_df
+from typing import Union, Iterable
+from typing_extensions import Literal
 
 top_n = 1000
 auroc_cutoff = 0.8
@@ -49,7 +51,7 @@ def cosg(adata,groupby):
                   cmap='Spectral_r',
                   standard_scale = 'var')
 
-def mdiff_pairwise(adata,group_by:str,groups:list[str],reference:str,method='wilcoxon',key_added = "rank_genes_groups",top_n=100,matrix=False):
+def mdiff_pairwise(adata,group_by:str,cluster:str,reference:str,method='t-test',key_added = "rank_genes_groups",top_n=None,matrix=False,**kwargs):
     """   
     Perform differential methylation analysis on single-cell data.
     Parameters:
@@ -84,17 +86,98 @@ def mdiff_pairwise(adata,group_by:str,groups:list[str],reference:str,method='wil
     The function logs the value counts of the groups and the progress of the analysis.
     """
 
-    logging.info(adata.obs[group_by].value_counts())  
-    print(f"... Running differential methylation analysis between groups {groups} and reference {reference}")
+    logging.info(adata.obs[group_by].value_counts())
+    
+    if isinstance(cluster, str):
+        groups = [cluster]
+    print(f"... Running differential methylation analysis between {cluster} and reference {reference}")
     if method == "t-test":
-        sc.tl.rank_genes_groups(adata, groupby=group_by, groups = groups, reference = reference, key_added = key_added, method='t-test_overestim_var', n_genes=top_n)
+        sc.tl.rank_genes_groups(adata, groupby=group_by, groups = groups, reference = reference, key_added = key_added, method='t-test_overestim_var', n_genes=top_n,**kwargs)
     elif method == "wilcoxon":
-        sc.tl.rank_genes_groups(adata, groupby=group_by, groups = groups, reference = reference, key_added = key_added, method='wilcoxon', n_genes=top_n)
+        sc.tl.rank_genes_groups(adata, groupby=group_by, groups = groups, reference = reference, key_added = key_added, method='wilcoxon', n_genes=top_n,**kwargs)
     else:
         raise ValueError("method must be 't-test' or 'wilcoxon'")
     if reference is not None:
-        adata.uns[key_added]['params'] = {'reference': reference, 'groups': groups, 'method': method}
+        adata.uns[key_added]['params'] = {'reference': reference, 'groups': groups, 'method': method} 
+    if matrix == True:
+        result = dmr_df(adata, key_added=key_added)
+        return result
+    else:       
+        return None
     
+def mdiff_specific(
+    adata,
+    group_by: str = 'rank_genes_groups',
+    clusters: Union[Literal['all'], Iterable[str]] = 'all',
+    reference: str = 'rest',
+    method: str ='wilcoxon',
+    key_added:str = "rank_genes_groups",
+    top_n: bool = None,
+    matrix: bool =False,
+    **kwargs
+    ):
+    """   
+    Perform differential methylation analysis on single-cell data.
+    Parameters:
+    -----------
+    adata : AnnData
+        Annotated data matrix.
+    group_by : str
+        The key of the observation grouping to consider.
+    clusters : list[str], optional (default: None)    
+        List of groups to compare.
+    reference : str, optional (default: 'rest')
+        The reference group to compare against. 
+    method : str, optional (default: 't-test')
+        The method to use for differential analysis. Options are 't-test' or 'wilcoxon'.
+    key_added : str, optional (default: "rank_genes_groups")    
+        The key under which the results will be stored in `adata.uns`.
+    top_n : int, optional (default: None)
+        Number of top differentially methylated genes to consider.
+    matrix : bool, optional (default: False)
+        If True, returns a DataFrame with the results.
+    Returns:
+    --------
+    result : DataFrame or None
+        If `matrix` is True, returns a DataFrame with the differential methylation results.
+        Otherwise, returns None.
+    """
+
+    logging.info(adata.obs[group_by].value_counts())
+    if clusters == 'all':
+        clusters = adata.obs[group_by].cat.categories.tolist()
+    print(f"... Running differential methylation analysis between {clusters} and reference {reference}")
+    if reference is None:
+        #TODO：这里应该是子集进行差异分析的逻辑代码，但是因为不知道怎么合并到对象里面，暂时没有实现
+        reference = 'rest'
+        # #如果指定参考组为None，则需要对groups里面的每个组进行两两比较
+        # if not isinstance(clusters, list) or len(clusters) < 2:
+        #     raise ValueError("clusters must be a list with at least two elements")
+        # # 生成所有两两组合
+        # pairwise_comparisons = list(itertools.combinations(clusters, 2))
+        # # 存储结果
+        # results = {}
+
+        # for group1, group2 in pairwise_comparisons:
+        #     print(f"Comparing {group1} vs {group2}")
+            
+        #     # 只筛选 group1 和 group2 细胞
+        #     adata_subset = adata[adata.obs[group_by].isin([group1, group2])].copy()
+           
+        #     # 运行差异分析
+        #     sc.tl.rank_genes_groups(adata_subset, groupby=[group_by], reference=group2)
+            
+        #     # 存储结果
+        #     results[f"{group1}_vs_{group2}"] = adata_subset.uns['rank_genes_groups']        
+    else:
+        if method == "t-test":
+            sc.tl.rank_genes_groups(adata, groupby=group_by, groups = clusters, reference = reference, key_added = key_added, method='t-test_overestim_var', n_genes=top_n, **kwargs)
+        elif method == "wilcoxon":
+            sc.tl.rank_genes_groups(adata, groupby=group_by, groups = clusters, reference = reference, key_added = key_added, method='wilcoxon', n_genes=top_n,**kwargs)
+        else:
+            raise ValueError("method must be 't-test' or 'wilcoxon'")
+        adata.uns[key_added]['params'] = {'reference': reference, 'groups': clusters, 'method': method} 
+        
     if matrix == True:
         result = dmr_df(adata, key_added=key_added)
         return result
@@ -205,6 +288,7 @@ def plot_dmr_heatmap(adata, dmr_df, obs_dim):
                            # col_split_order=df_row.Group.unique().tolist(),
                            cmap='parula', rasterized=True)
     plt.show()
+
 
 
 def dmr_df_to_gene(dmr_df, key_added='gene_annotation', maohao=True):

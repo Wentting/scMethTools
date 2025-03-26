@@ -17,7 +17,7 @@ HEADERS = 'rank,term,pvalue,zscore,combined_score,genes,adj_pvalue'.split(',')
 LEGACY_ONTOLOGIES = 'WikiPathways_2019_Human,WikiPathways_2019_Mouse,KEGG_2019_Human,KEGG_2019_Mouse,GO_Molecular_Function_2018,GO_Cellular_Component_2018,GO_Biological_Process_2018,BioPlanet_2019'.split(',')
 
 scm_dir = os.path.dirname(scMethtools.__file__)
-ENRICH_DIR = os.path.join(scm_dir, 'package_data/motifs/')
+ENRICH_DIR = os.path.join(scm_dir, 'datasets/enrich/')
 
 def enrich(gene_list, gene_sets = 'WikiPathways_2019_Human',outdir=None, cutoff=0.05):
     """

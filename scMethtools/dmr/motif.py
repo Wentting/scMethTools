@@ -3,6 +3,7 @@ import os
 import pyfaidx
 import tqdm
 import numpy as np
+import pandas as pd
 from glob import glob
 import subprocess
 from scipy import sparse
@@ -11,8 +12,9 @@ import scanpy as sc
 from anndata import AnnData
 from scipy.stats import fisher_exact
 
-PWM_DIR = 'motif_db'
+PWM_DIR = '/p300s/baoym_group/zongwt/zongwt/motifs' #需要修改为自己的PWM文件路径
 PWM_suffix = 'jaspar'
+
 
 def get_motif_hits(peak_sequences_file, num_peaks, pvalue_threshold = 0.00005):
 
@@ -69,9 +71,10 @@ def get_motif_hits(peak_sequences_file, num_peaks, pvalue_threshold = 0.00005):
     print.info('Formatting hits matrix ...')
     return sparse.coo_matrix((scores, (peak_indices, motif_indices)), 
         shape = (num_peaks, len(motif_matrices))).tocsr().T.tocsr()
+    
 
 
-def motif_scan(regions, genome, pvalue_threshold = 0.00005):
+def motif_scan(adata, regions, genome, pvalue_threshold = 0.00005):
     """_summary_
 
     Args:
@@ -96,7 +99,13 @@ def motif_scan(regions, genome, pvalue_threshold = 0.00005):
 
         ids, factors = list(zip(*list_motif_ids()))
         parsed_factor_names = list(map(_parse_motif_name, factors))
-
+        
+        adata.uns["motif_analysis"] = {
+            "hits_matrix": hits_matrix,  # regions x motifs hits matrix
+            "motif_names": parsed_factor_names,
+            "motif_ids": ids,
+            "motif_factors": factors
+        }
         return ids, factors, parsed_factor_names, hits_matrix
 
     finally:
@@ -172,35 +181,82 @@ def featch_dmr(adata,group=None,key_added='rank_genes_groups',chrom='chromosome'
     
 # #计算每一种细胞类型的差异DMR中富集的TF
 
-def calculate_enrichment(hits_matrix,adata,key_add='rank_gene',group=None):
-#计算group的dmr列表的富集情况
+def motif_enrichment(adata, key_added='rank_genes_groups', group=None):
+    """
+    calculate the enrichment of TF in DMRs of each cell type
 
-    group = '0'
-    deg_names = adata.uns['treatment']['names'][group]
+    Args:
+        hits_matrix (_type_): matrix of motif hits, must run motif_scan first
+        adata (_type_): _description_
+        key_add (str, optional): _description_. Defaults to 'rank_genes_groups'.
+        group (_type_, optional): _description_. Defaults to None.
     
-    # 确保转换为标准 Python 列表，并去除可能的嵌套结构
-    deg_names = np.array(deg_names).flatten().astype(str).tolist()
+    ----------------
+    Example:
+    >>> motif_enrichment(adata, key_added='rank_genes_groups', group=['0','1'])
+    >>> motif_enrichment(adata, key_added='rank_genes_groups')
+    """
+    if "motif_analysis" not in adata.uns:
+        raise ValueError("Please run motif_scan first to generate hits_matrix.")
+    # Check if key_add exists in adata.uns
+    if key_added not in adata.uns:
+        raise ValueError(f"'{key_added}' is not found in adata.uns. Differential analysis may not have been performed.")
     
-    # 获取在 `adata.var.index` 中的索引
-    gene_idx = adata.var.index.get_indexer(deg_names)
-    
-    # 过滤掉未匹配的基因（索引值为 -1）
-    gene_idx = gene_idx[gene_idx >= 0]
+    hits_matrix =  adata.uns["motif_analysis"]["hits_matrix"]
+    # 从 adata.uns 中获取 motif ID 和 TF 名称
+    motif_ids = adata.uns["motif_analysis"]["motif_ids"]
+    tf_names = adata.uns["motif_analysis"]["motif_factors"]
+    if group is None:
+        group_list = list(adata.uns[key_added]['names'].dtype.names)
+    else:
+        # 确保 groups 是列表格式
+        if isinstance(group, str):
+            group_list = [group]  # 如果是字符串，转换成列表
+    # Store results in dictionaries
+    enrichment_results = {}
+    for g in group_list:
+        print(f'Calculating enrichment for group {g} ...')
+        #计算group的dmr列表的富集情况
+        dmr_names = adata.uns[key_added]['names'][g].tolist()
+        # 有一种可能，存放的不是dmr,而是所有的region，他没有进行过滤
+        # 获取在 `adata.var.index` 中的索引
+        gene_idx = adata.var.index.get_indexer(dmr_names)
+        # 过滤掉未匹配的基因（索引值为 -1）
+        gene_idx = gene_idx[gene_idx >= 0]
 
-    pvals, test_statistics = [], []
-    for i in tqdm(range(hits_matrix.shape[0]), desc='Finding enrichments'):
+        pvals, test_statistics = [], []
+        for i in tqdm(range(hits_matrix.shape[0]), desc='Finding enrichments'):
+        
+            tf_hits = hits_matrix[i,:].indices #获取第 i 个 TF 在所有regions（（包括 DMR 和非 DMR）上的 motif 结合情况
+            overlap = len(np.intersect1d(tf_hits, gene_idx)) # 计算该 TF motif 与 DMRs 的重叠数
+            #构建2*2列联表
+            module_only = len(gene_idx) - overlap
+            tf_only = len(tf_hits) - overlap
+            neither = hits_matrix.shape[1] - (overlap + module_only + tf_only)
+            contingency_matrix = np.array([[overlap, module_only], [tf_only, neither]])
+            #执行Fisher检验
+            stat,pval = fisher_exact(contingency_matrix, alternative='greater')
+            pvals.append(pval)
+            #test_statistics.append(stat) 
+            
+        # Store results for the current group
+        #enrichment_results[g] = {'pval': pvals, 'stat': test_statistics}
+        # Convert results to DataFrame
     
-        tf_hits = hits_matrix[i,:].indices #获取第 i 个 TF 在所有regions（（包括 DMR 和非 DMR）上的 motif 结合情况
-        overlap = len(np.intersect1d(tf_hits, gene_idx)) # 计算该 TF motif 与 DMRs 的重叠数
-        #构建2*2列联表
-        module_only = len(gene_idx) - overlap
-        tf_only = len(tf_hits) - overlap
-        neither = hits_matrix.shape[1] - (overlap + module_only + tf_only)
-        contingency_matrix = np.array([[overlap, module_only], [tf_only, neither]])
-        #执行fisher检验
-        stat,pval = fisher_exact(contingency_matrix, alternative='greater')
-        pvals.append(pval)
-        test_statistics.append(stat)
+    # Store results for the current group
+    enrichment_results[g] = {'pval': pvals, 'stat': test_statistics}
+    # Convert results to DataFrame
+    # df_pvals = pd.DataFrame({g: enrichment_results[g]['pval'] for g in group_list}, index=tf_names)
+    # df_stats = pd.DataFrame({g: enrichment_results[g]['stat'] for g in group_list}, index=tf_names)
+    df_pvals = pd.DataFrame({g: enrichment_results[g]['pval'] for g in group_list}, index=tf_names)
+    # Combine p-values and statistics into a single DataFrame
+    #df_enrichment = pd.concat([df_pvals.add_suffix('_pval'), df_stats.add_suffix('_stat')], axis=1)
+    # Save to adata.uns
+    if 'motif_enrichment' not in adata.uns:
+        adata.uns['motif_enrichment'] = {}  # 初始化为空字典或其他数据结构
+    adata.uns['motif_enrichment'][key_added]= df_pvals
+    return df_pvals
+
 
     
     
