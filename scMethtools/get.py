@@ -92,7 +92,14 @@ def rank_genes_groups_df(
 
     return d.reset_index(drop=True)
 
-
+def get_var(adata, chrom='chromosome', start='start', end='end'):
+    """
+    Fetch DMR region from genome and return a numpy array.
+    """
+    try:
+        return adata.var[[chrom, start, end]].values  # 直接返回 ndarray
+    except KeyError:
+        raise Exception(f'Some of the columns {chrom}, {start}, {end} are not in .var')
 
 def get_group_dmr(
     adata: AnnData,
@@ -128,19 +135,15 @@ def get_group_dmr(
         groups = [groups]
     # 获取所有分组
     if groups is None:
-        groups = list(adata.uns[key_added]['names'].dtype.names)
-    
+        groups = list(adata.uns[key_added]['names'].dtype.names) 
     # 获取基因名和 logFC 数据
     gene_names = pd.DataFrame(adata.uns[key_added]['names'])
     logfc = pd.DataFrame(adata.uns[key_added]['logfoldchanges'], index=gene_names.index)
-
     result_genes = {}
-
     for group in groups:
         # 获取该组的基因
         genes = gene_names[group].tolist()
         fc_values = logfc[group]
-
         # 筛选基因
         if direction == "up":
             selected_genes = [genes[i] for i in range(len(genes)) if fc_values[i] > 0]
@@ -148,15 +151,12 @@ def get_group_dmr(
             selected_genes = [genes[i] for i in range(len(genes)) if fc_values[i] < 0]
         else:  # both
             selected_genes = genes
-
         # 如果需要转换基因名
         if gene_symbols and gene_symbols in adata.var.columns:
             selected_genes = adata.var.loc[selected_genes, gene_symbols].dropna().tolist()
 
         result_genes[group] = selected_genes
-
     return result_genes
-
 
 
 def get_region_genes(

@@ -81,21 +81,6 @@ class Smoother(object):
             except IndexError:
                 smoothed[i] = np.nan
         return smoothed
-    # def smooth(data_dir, bandwidth, use_weights):
-    #     out_dir = os.path.join(data_dir, "smoothed")
-    #     os.makedirs(out_dir, exist_ok=True)
-    #     for mat_path in sorted(glob.glob(os.path.join(data_dir, "*.npz"))):
-    #         chrom = os.path.basename(os.path.splitext(mat_path)[0])
-    #         print(f"Reading chromosome {chrom} data from {mat_path} ...")
-    #         mat = sparse.load_npz(mat_path)
-    #         sm = Smoother(mat, bandwidth, use_weights)
-    #         print(f"Smoothing chromosome {chrom} ...")
-    #         smoothed_chrom = sm.smooth_whole_chrom()
-    #         with open(os.path.join(out_dir, f"{chrom}.csv"), "w") as smooth_out:
-    #             for pos, smooth_val in smoothed_chrom.items():
-    #                 smooth_out.write(f"{pos},{smooth_val}\n")
-    #     print('smoothing done')
-    #     return
     
 class AdaptiveSmoother(object):
     def __init__(self, sparse_mat, n_neighbors=10, weigh=False):
@@ -173,18 +158,6 @@ def _smoothing_cell(data_path, keep=True):
             os.remove(coo_file)
     return
 
-# def _smoothing_chrom(csr_matrix_chrom,chrom,output_dir):
-#     echo(f"...smoothing {chrom}")
-#     csr_matrix_chrom = sparse.save_npz(os.path.join(output_dir, "{chrom}.npz"))
-#     sm = Smoother(csr_matrix_chrom,bandwidth=1000, weigh=True)
-#     smoothed_chrom = sm.smooth_whole_chrom()
-#     smooth_path = os.path.join(output_dir,"smooth")
-#     os.makedirs(smooth_path, exist_ok=True)
-#     with open(os.path.join(smooth_path, f"{chrom}.csv"), "w") as smooth_out:
-#         for pos, smooth_val in smoothed_chrom.items():
-#             smooth_out.write(f"{pos},{smooth_val}\n")
-#     echo(f"...smoothing {chrom} end") 
-#     return smoothed_chrom
 def _smoothing_chrom(chrom,npz_path,output_dir,adaptive=False):
     logg.info(f"...smoothing {chrom}")
     csr_matrix_chrom = sparse.load_npz(os.path.join(npz_path, f"{chrom}.npz"))

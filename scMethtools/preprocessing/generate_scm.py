@@ -21,6 +21,9 @@ import concurrent.futures
 import scMethtools.logging as logg
 import warnings
 from anndata import ImplicitModificationWarning
+from concurrent.futures import ProcessPoolExecutor
+from functools import partial, lru_cache
+
 
 # ignore division by 0 and division by NaN error
 np.seterr(divide="ignore", invalid="ignore")
@@ -71,8 +74,7 @@ def import_cells(input_dir: Path,
     logg.info( f"...import {n_cells} cells with {cpu} cpus")
     # adjust column order with different pipeline
     column_order = reorder_columns_by_index(pipeline)
-    
-    #tmp_path is coo file which can be deleted when keep_tmp is Falsels
+    #tmp_path is coo file which can be deleted when keep_tmp is False
     stat_df, tmp_path = _import_cells_worker(cells, output_dir, context, cpu,*column_order)
     #npz dir
     #/xtdisk/methbank_baoym/zongwt/single/data/GSE97179/scbs/
@@ -85,37 +87,55 @@ class CoverageFormat(
     namedtuple('CoverageFormat', ['chrom', 'pos', 'meth', 'umeth', 'context', 'coverage', 'sep', 'header'])):
     """Describes the columns in the coverage file.
     chrom, pos, meth, umeth, context, coverage, sep, header
+
+    Params:
+    chrom (int): 染色体列索引
+    pos (int): 位置列索引
+    meth (int): 甲基化列索引
+    umeth (int): 未甲基化列索引
+    context (int): 上下文列索引
+    coverage (bool): 是否使用覆盖度计数
+    sep (str): 分隔符
+    header (bool): 是否有表头
+   
     """
     def remove_chr_prefix(self):
         """Remove "chr" or "CHR" etc. from chrom."""
         return self._replace(chrom=self.chrom.lower().lstrip("chr"))
 
 def _custom_format(format_string):
-    """Create from user specified string. Adapted from scbs function"""
-    format_string = format_string.lower().split(":")
-    if len(format_string) != 7:
-        raise Exception("Invalid number of ':'-separated values in custom input format")
-    chrom = int(format_string[0]) - 1
-    pos = int(format_string[1]) - 1
-    meth = int(format_string[2]) - 1
-    info = format_string[3][-1]
-    if info == "c":
-        coverage = True
-    elif info == "u":
-        coverage = False
-    else:
-        raise Exception(
-            "The 4th column of a custom input format must contain an integer and "
-            "either 'c' for coverage or 'u' for unmethylated counts (e.g. '4c'), "
-            f"but you provided '{format_string[3]}'."
-        )
-    umeth = int(format_string[3][0:-1]) - 1
-    context = int(format_string[4])-1
-    sep = str(format_string[5])
-    if sep in ("\\t", "TAB", "tab", "t"):
-        sep = "\t"
-    header = bool(int(format_string[6]))
-    return CoverageFormat(chrom, pos, meth, umeth, context, coverage, sep, header)
+    """
+    Create from user specified string. Adapted from scbs function
+    
+     Args:
+        format_string: e.g chrom:pos:meth:coverage/unmeth:context:sep:header
+    """
+    try:
+        parts = format_string.lower().split(":")
+        if len(parts) != 7:
+            raise Exception("Invalid number of ':'-separated values in custom input format")
+         # 使用列表推导式简化索引转换
+        indices = [int(p) - 1 for p in parts[:3]]
+        chrom, pos, meth = indices
+         # 使用正则表达式解析coverage/unmeth
+        import re
+        match = re.match(r'(\d+)([cuCU])', parts[3])
+        if not match:
+            raise Exception(
+                "The 4th column of a custom input format must contain an integer and "
+                "either 'c' for coverage or 'u' for unmethylated counts (e.g. '4c'), "
+                f"but you provided '{format_string[3]}'."
+            )
+        umeth, info = match.groups()
+        umeth = int(umeth) - 1 
+        coverage = info == 'c'
+        #umeth = int(format_string[3][0:-1]) - 1
+        context = int(parts[4])-1
+        sep = "\t" if parts[5].lower() in ("\\t", "tab", "t") else parts[5]
+        header = bool(int(parts[6]))
+        return chrom, pos, meth, umeth, context, coverage, sep, header
+    except (ValueError, IndexError) as e:
+        raise ValueError(f"Format parsing error : {str(e)}")
 
 
 def reorder_columns_by_index(pipeline):
@@ -135,57 +155,22 @@ def reorder_columns_by_index(pipeline):
     # methylpy format:
     # order: chr pos(1-based) meth unmeth context coverage(all-C) sep header
     format_orders = {
-        'bismark': CoverageFormat(
-            0,
-            1,
-            3,
-            4,
-            5,
-            False,
-            "\t",
-            False,
-        ),
-        'bsseeker2': CoverageFormat(
-            0,
-            2,
-            6,
-            7,
-            3,
-            True,
-            "\t",
-            False,
-        ),
-        'bsseeker': CoverageFormat(
-            0,
-            2,
-            6,
-            7,
-            3,
-            True,
-            "\t",
-            False,
-        ),
-        'methylpy': CoverageFormat(
-            0,
-            2,
-            6,
-            7,
-            3,
-            True,
-            "\t",
-            False,
-        )
+        'bismark': CoverageFormat(0, 1, 3, 4, 5, False, "\t", False),
+        'bsseeker2': CoverageFormat(0, 2, 6, 7, 3, True, "\t", False),
+        'bsseeker': CoverageFormat(0, 2, 6, 7, 3, True, "\t", False),
+        'methylpy': CoverageFormat(0, 2, 6, 7, 3, True, "\t", False)
     }
     # 根据指定的格式调整列顺序
     if pipeline in format_orders:
         logg.info("## BED column format: " + pipeline)
         new_order = format_orders[pipeline]
+        return new_order
     elif ":" in pipeline:
         logg.info("## BED column format:  Custom")
         new_order = _custom_format(pipeline)
+        return new_order
     else:
-        raise ValueError("Invalid format type or custom order.")
-    return new_order
+        raise ValueError(f"Invalid format type or custom order {pipeline}.")
 
 
 def read_bed_CG(bed_file, cell_id, chrom_col, pos_col, meth_col, umeth_col, context_col, cov, sep, header):
@@ -484,40 +469,110 @@ def _save_coo(reduced_cyt,context,data_path):
             file.write('\n')
             file.write('\n'.join(lines))
     del reduced_cyt
+    
+def save_chrom_dict_to_coo(chrom_dict, output_dir, context):
+    for chrom, values in chrom_dict.items():
+        arr = np.array(values)
+        if arr.shape[0] == 0:
+            continue
+        coo = sparse.coo_matrix((arr[:, 2], (arr[:, 0], arr[:, 1])))
+        sparse.save_npz(os.path.join(output_dir, f"{chrom}_{context}.npz"), coo)    
 
+def read_pandas_in_chunks(cell_id,bed_file,data_path, chrom_col, pos_col, meth_col, umeth_col, context_col, cov, sep, header, chunk_size=100000):
+    stat_dict = {'cell_id': cell_id, 'cell_name': os.path.basename(bed_file).split('.')[0], 'sites': 0, 'meth': 0, 'n_total': 0}
+    reduced_cyt = {}
+
+    use_cols = [chrom_col, pos_col, meth_col, umeth_col, context_col]
+    names = ['chrom', 'pos', 'context', 'meth', 'umeth']
+    dtype = {chrom_col: str, context_col: str}
+
+    for chunk in pd.read_csv(
+        bed_file,
+        sep=sep,
+        header=0 if header else None,
+        compression='infer',
+        usecols=use_cols,
+        names=names if not header else None,
+        dtype=dtype,
+        chunksize=chunk_size,
+        low_memory=False
+    ):
+        #这些判断会导致比episcanpy更慢，因为他完全没有做任何的判断
+        chunk['chrom'] = 'chr' + chunk['chrom'].str.lstrip('chr')
+        chunk = chunk[chunk['context'].isin(['CGG', 'CGC', 'CGA', 'CGT', 'CGN', 'CG', 'CpG'])]
+        if chunk.empty:
+            continue
+        coverage = chunk['umeth'] + (0 if cov else chunk['meth'])
+        meth_ratio = chunk['meth'] / coverage
+        meth_value = np.where(meth_ratio >= 0.9, 1, np.where(meth_ratio <= 0.1, -1, 0))
+        chunk['meth_value'] = meth_value
+        for chrom, group in chunk.groupby('chrom'):
+            reduced_cyt.setdefault(chrom, []).extend(zip(group['pos'],  group['meth'], group['umeth']))
+
+        stat_dict['sites'] += len(chunk)
+        stat_dict['meth'] += np.sum(meth_value == 1)
+        stat_dict['n_total'] += coverage.sum()
+    stat_dict['global_meth_level'] = stat_dict['meth'] / stat_dict['sites'] if stat_dict['sites'] else 0
+    save_chrom_dict_to_coo(reduced_cyt, data_path, 'CG')#这样就变快了
+    return stat_dict
 
 def _read_CG_bed_save_coo(cell_id, bed_file, data_path, chrom_col, pos_col, meth_col, umeth_col, context_col, cov, sep, header):
     """
-    Reads BED files and generates methylation matrices.
+     cell_id : int
+        Unique identifier for the cell.
+    bed_file : str
+        Path to the BED file to read (can be gzipped).
+    data_path : str
+        Path where to save the COO file.
+    chrom_col : int, default=0
+        Column index for chromosome information.
+    pos_col : int, default=1
+        Column index for position information.
+    meth_col : int, default=4
+        Column index for methylated read counts.
+    umeth_col : int, default=5
+        Column index for unmethylated read counts.
+    context_col : int, default=6
+        Column index for sequence context.
+    cov : bool, default=False
+        If True, coverage includes methylated reads.
+    sep : str, default='\t'
+        Delimiter used in the BED file.
+    header : bool, default=False
+        Whether the BED file has a header line.
+    chunk_size : int, default=1000000
+        Number of lines to process at once when using pandas.
+    use_pandas : bool, default=True
+        Whether to use pandas for reading (faster for large files).
 
     """
     reduced_cyt = {}
     cell_name = os.path.splitext(os.path.basename(bed_file))[0]
     stat_dict = {'cell_id': cell_id, 'cell_name': cell_name, 'sites': 0, 'meth': 0, 'n_total': 0, 'global_meth_level': 0}
-
-    open_func = gzip.open if bed_file.endswith('.gz') else open
-    with open_func(bed_file, 'rb' if bed_file.endswith('.gz') else 'r') as sample:
+    is_gz = bed_file.endswith('.gz')
+    open_func = gzip.open if is_gz  else open
+    with open_func(bed_file, 'rb' if is_gz else 'r') as sample:
+         # 如果是 gz，转换为文本流
+        if is_gz:
+            sample = (line.decode('utf-8') for line in sample)
         if header:
             next(sample)
         for line in sample:
-            if bed_file.endswith('.gz'):
-                line = line.decode('utf-8')
-
             if line.startswith('#'):
                 continue
-
             line = line.split(sep)
-            chrom = "chr" + line[chrom_col] if not line[chrom_col].startswith("chr") else line[chrom_col]
+            chrom = "chr" + line[chrom_col].lstrip("chr")  # 直接去除前缀，提高效率
             pos, meth, status = int(line[pos_col]), int(line[meth_col]), line[context_col]
             if status in {'CGG', 'CGC', 'CGA', 'CGT', 'CGN', 'CG', 'CpG'}:
-                coverage = int(line[umeth_col]) + (0 if cov else meth)
-                meth_value = 1 if meth / coverage >= 0.9 else -1 if meth / coverage <= 0.1 else 0
+                #cov为True，说明umeth列提供的是总覆盖度，否则umeth列提供的是未甲基化的覆盖度，所以需要相加
+                coverage = int(line[umeth_col]) + (0 if cov else meth) #如果cov为True，则coverage = umeth + 0，否则coverage = meth
+                meth_ratio = meth / coverage
+                meth_value = 1 if meth_ratio >= 0.9 else -1 if meth_ratio <= 0.1 else 0
                 reduced_cyt.setdefault(chrom, []).append((pos, cell_id, meth_value))
                 stat_dict['sites'] += 1
                 if meth_value == 1:
                     stat_dict['meth'] += 1
                 stat_dict['n_total'] += coverage
-
     stat_dict['global_meth_level'] = stat_dict['meth'] / stat_dict['sites'] if stat_dict['sites'] else 0
     _save_coo(reduced_cyt, 'CG', data_path)
     del reduced_cyt
@@ -561,83 +616,52 @@ def _read_CHG_bed_save_coo(cell_id, bed_file, data_path, chrom_col, pos_col, met
     return stat_dict
 
 
+
 def _process_partial(cell,context,**args):
+    """ 
+    read single cell bed file and save as coo file
+    """
     cell_id = cell[0]
     bed_file = cell[1]
+    
     if context == 'CG':
         return _read_CG_bed_save_coo(cell_id, bed_file, **args)
     else:
         return _read_CHG_bed_save_coo(cell_id, bed_file, **args)  
 
 
-
 def _import_cells_worker(cells, out_dir, context, cpu,chrom_col, pos_col, meth_col, umeth_col, context_col, cov, sep, header):
-    """ multi-threading import cells
-
-    Args:
-        cells (_type_): _description_
-        out_dir (_type_): _description_
-        context (_type_): _description_
-        cpu (_type_): _description_
-        chrom_col (_type_): _description_
-        pos_col (_type_): _description_
-        meth_col (_type_): _description_
-        umeth_col (_type_): _description_
-        context_col (_type_): _description_
-        cov (_type_): _description_
-        sep (_type_): _description_
-        header (_type_): _description_
-
+    
+    """
+    import cells in parallel and save as coo file
+    Params:
+        cells: list of cells
+        out_dir: output directory
+        context: CG or nonCG
+        cpu: number of threads
     Returns:
         _type_: _description_
     """
-    from concurrent.futures import ProcessPoolExecutor
-    from functools import partial
     stat_result = []
     # making temp directory for coo file
-    data_path = os.path.join(out_dir, "tmp")
+    data_path = os.path.join(out_dir, "tmp")   
     os.makedirs(data_path, exist_ok=True)
     logg.info(f"# Temp coo data writing to {data_path}")
-
+    # TO DO: 现在不能重复导入同一个细胞的数据，不然会在coo文件中反复修改，导致值发生变化
     with ProcessPoolExecutor(max_workers=cpu) as executor:
         process_partial_param = partial(_process_partial, data_path=data_path, context=context, chrom_col=chrom_col, pos_col=pos_col,
                                   meth_col=meth_col, umeth_col=umeth_col, context_col=context_col, cov=cov, sep=sep, header=header)
-        stat_result = list(executor.map(process_partial_param, enumerate(cells)))
-
+        # 使用tqdm显示进度
+        from tqdm import tqdm
+        stat_result = list(tqdm(
+            executor.map(process_partial_param, enumerate(cells)),
+            total=len(cells)
+        ))
     stat_df = pd.DataFrame(stat_result)
     stat_path = os.path.join(out_dir, "basic_stats.csv")
     stat_df.to_csv(stat_path, index=False)
     logg.info(f"## Basic summary writing to {stat_path} ...")
     return stat_df, data_path
-
-# def import_cells( data_dir: str,
-#         output_dir: str,
-#         suffix: str = "bed",
-#         context: str ='CG',
-#         cpu: int = 10,
-#         pipeline: str = 'bsseeker2'):
-#     """_summary_
-
-#     Args:
-#         data_dir (str): methylation file directory
-#         output_dir (str): output directory
-#         suffix (str, optional): suffix of methylation file. Defaults to "bed".
-#         context (str, optional): Defaults to 'CG'.
-#         cpu (int, optional): Defaults to 10.
-#         pipeline (str, optional): call methylation software, Defaults to 'bsseeker2'.
-#     """
-#     make_dir(output_dir)
-#     cells = find_files_with_suffix(data_dir, suffix)
-#     n_cells = len(cells)
-#     # thread default 10
-#     cpu = min(cpu, n_cells)
-#     # adjust column order with different pipeline
-#     #TO DO:
-#     # 导入之前需要检查一下文件夹不要重复处理，不然每处理一次行数会增加一倍。
-#     column_order = reorder_columns_by_index(pipeline)
-#     stat_df, tmp_path = _import_cells_paraller(cells,output_dir,context, cpu,*column_order)
-    
-#     return stat_df,tmp_path
     
 
 def generate_scm(
@@ -789,6 +813,7 @@ def _matrix_npz(tmp_path,output_dir,smooth=True,exclude_chrom=None,keep_tmp=True
                 os.remove(coo_file)
 
 def matrix_npz_worker(file, tmp_path, npz_path, output_dir, smooth):
+    #一个file是一个染色体
     chrom = os.path.basename(file).split('_')[0]
     coo_file = os.path.join(tmp_path, file)
     try:
@@ -796,11 +821,12 @@ def matrix_npz_worker(file, tmp_path, npz_path, output_dir, smooth):
         with open(coo_file, 'r') as f:
             valid_lines = ((int(row), int(col), int(val)) for line in f if line.count('\t') == 2 for row, col, val in [line.split('\t')])
             rows, cols, data = zip(*valid_lines) if valid_lines else ([], [], [])
-        if data:
-            csr_matrix_result = sparse.csr_matrix((data, (rows, cols)))
-            sparse.save_npz(os.path.join(npz_path, f"{chrom}.npz"), csr_matrix_result)
-            if smooth:
-                _smoothing_chrom(chrom, npz_path, output_dir)
+        if not data:
+            return
+        csr_matrix_result = sparse.csr_matrix((data, (rows, cols)))
+        sparse.save_npz(os.path.join(npz_path, f"{chrom}.npz"), csr_matrix_result)
+        if smooth:
+            _smoothing_chrom(chrom, npz_path, output_dir)
     except Exception as e:
         logg.warnings(f"Error in processing {file}: {e}")
         
@@ -831,34 +857,37 @@ def save_cells(tmp_path, output_dir, cpu=10, smooth=True, exclude_chrom=None, ke
         futures = [executor.submit(matrix_npz_worker, file, tmp_path, npz_path, output_dir, smooth)
                    for file in file_list if os.path.basename(file).split('_')[0] not in exclude_chrom]
         concurrent.futures.wait(futures)
-    # with concurrent.futures.ThreadPoolExecutor() as executor:
-    #     futures = [executor.submit(process_file, file, tmp_path, output_dir, smooth)
-    #                for file in file_list if os.path.basename(file).split('_')[0] not in exclude_chrom]
-    #     concurrent.futures.wait(futures)
     if not keep_tmp:
         for file in file_list:
             os.remove(os.path.join(tmp_path, file))
-
     
-
+#generate methylation matrix step after import and feature reading
 def feature_to_scm(feature,output_dir,out_file,npz_path=None, cpu=1,relative=True,smooth=False,copy=False,meta=None):
     #feature_to_scm(feature=features[feature_index],output_dir=npz_path,out_file=fn,cpu=cpu,relative=relative,smooth=smooth,copy=True,meta=meta_df)
-    """This function calculate methylation level and residual for coo files in features
+    """
+    generate one anndata object with one feature methylation matrix
+
     Args:
-        features (_object_): 
-        tmp_path (_string_): _description_
-        cpu (int, optional): _description_. Defaults to 10.
+        feature (_str_): a feature object
+        output_dir (_path_) path to save the output file
+        out_file (_str_): name of the output file
+        npz_path (_path_, optional): path to npz file after import cells. Defaults to None.
+        cpu (int, optional): _description_. Defaults to 1.
+        relative (bool, optional): whether to conduct relative caculating. Defaults to True.
+        smooth (bool, optional): whether to calculate smooth value for all positions. Defaults to False.
+        copy (bool, optional): whether return object. Defaults to False.
+        meta (_path_, optional): path to meta file. Defaults to None.
 
     Returns:
-        _scm object_: _description_
+        _type_: _description_
+        
+    Example:
+        w100k = scm.pp.feature_to_scm(feature=windows,output_dir="./out",npz_path=None,out_file="toy_100k",cpu=10,smooth=False,relative=True,copy=True)
     """
     make_dir(output_dir)
-    if npz_path is None:
-        npz_file_path = os.path.join(output_dir,"data")
-    else:
-        npz_file_path = npz_path
-
+    npz_file_path = npz_path or os.path.join(output_dir, "data")
     cpu = min(cpu, len(feature))
+    
     pool  = mp.Pool(processes=cpu)
     result = []
     #if feature is not None:
@@ -872,26 +901,6 @@ def feature_to_scm(feature,output_dir,out_file,npz_path=None, cpu=1,relative=Tru
     pool.join()
     # Combine the results into a final list using the zip function.
     final_result = [sum(combined, []) for combined in zip(*[res.get() for res in result])]
-    # final_result = []
-    # for res in result:
-    #     try:
-    #         if res.successful():
-    #             # 如果任务成功完成，则获取结果
-    #             final_result.extend(res.get())
-    #         else:
-    #             # 处理不成功的情况（这里的代码实际上可能永远不会执行，因为不成功的任务会抛出异常）
-    #             print("A task failed.")
-    #     except Exception as e:
-    #         # 处理在`res.get()`调用时可能抛出的异常（例如，当任务内部发生错误时）
-    #         print(f"Error: Some chromosomes features seems not found data with {e}")
-    # # 在尝试合并之前，确保final_result不为空
-    # if final_result:
-    #     # 适当处理以避免形状不匹配的问题
-    #     try:
-    #         final_result = [sum(combined, []) for combined in zip(*final_result)]
-    #     except ValueError as e:
-    #         print(f"Error during result combination: {e}")
-        # 根据需要处理错误
     logg.info(f"## anndata saved at {output_dir}")
     #result list: residual(optional),mean,var
     if len(final_result) == 2:
@@ -982,8 +991,6 @@ def _caculate_bins_mean_chrom(npz_path,chrom,regions):
         #mean_shrunk_resid, mean_level = _calc_mean_shrunken_residuals
         result = _calculate_mean_level(
             data_chrom,
-            data_chrom.indices,
-            data_chrom.indptr,
             region_start,
             region_end,
             n_cells,
@@ -994,7 +1001,7 @@ def _caculate_bins_mean_chrom(npz_path,chrom,regions):
         region_mtx.append(_calculate_region_statistics(chrom,region_start,region_end,sr=None,mean=result))
     return mean_bins,region_mtx
 
-def _calculate_mean_level(data_chrom, region_start, region_end,n_cells, chrom_len):
+def _calculate_mean_level(data_chrom,region_start, region_end,n_cells, chrom_len,):
     mean_level = np.full(n_cells, np.nan)
     start = max(region_start - 1, 0)
     end = min(region_end - 1, chrom_len)

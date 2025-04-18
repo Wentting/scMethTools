@@ -10,6 +10,7 @@ import matplotlib.pyplot as plt
 from math import ceil
 from pandas.core.arrays.categorical import Categorical
 from scMethtools import _utils
+import seaborn as sns
 
 def map_colors(ax, c, palette, add_legend = True, hue_order = None, na_color = 'lightgrey',
         legend_kwargs = {}, cbar_kwargs = {}, vmin = None, vmax = None, log = False,
@@ -220,3 +221,74 @@ def plot_enrichment(
     _utils.savefig("enrichment", show=show, save=save,dpi=_dpi)
     
     plt.show()
+
+def plot_motif(
+    enrich_matrix,
+    pval_threshold=5e-7,
+    top_n=10,
+    figsize=None,
+    fontsize=None,
+    dpi=None,
+    show=None,
+    save=None,
+    title="Motif Enrichment Heatmap",
+    cmap="OrRd",
+    **kwargs
+):
+    """
+    Generates a heatmap for motif enrichment analysis.
+
+    Parameters:
+    - enrich_matrix: DataFrame, containing p-values for enrichment analysis (rows: motifs, columns: groups).
+    - pval_threshold: float, threshold for filtering motifs based on p-value (default: 5e-7).
+    - top_n: int, selects the top N motifs with the smallest p-values for each column (default: 10).
+    - figsize: tuple, figure size (default: (6,4)).
+    - fontsize: int, font size (default: matplotlib global settings).
+    - dpi: int, figure resolution (default: matplotlib global settings).
+    - show: bool, whether to display the figure.
+    - save: str, file path to save the figure (optional).
+    - title: str, title of the heatmap.
+    - cmap: str, colormap for the heatmap (default: "OrRd").
+
+    Returns:
+    - fig, ax: Matplotlib figure and axis objects.
+    """
+
+    # Set default parameters based on user input or global settings
+    _figsize = figsize if figsize is not None else plt.rcParams["figure.figsize"]
+    _fontsize = fontsize if fontsize is not None else plt.rcParams["font.size"]
+    _dpi = dpi if dpi is not None else plt.rcParams["figure.dpi"]
+    _title_fontsize = _fontsize * 1.1
+
+    # Filter motifs based on p-value threshold
+    df_filtered = enrich_matrix[enrich_matrix.min(axis=1) < pval_threshold]
+
+    # If no motifs pass the threshold, display a warning and return None
+    if df_filtered.empty:
+        print(f"Warning: No motifs passed the p-value threshold ({pval_threshold}).")
+        return None, None
+
+    # Select the top N motifs with the smallest p-values in each column
+    top_indices = set()
+    for col in df_filtered.columns:
+        n = min(top_n, len(df_filtered))  # Ensure the number does not exceed available motifs
+        top_indices.update(df_filtered.nsmallest(n, col).index)
+
+    # Convert the set to a list for proper indexing
+    df_filtered = df_filtered.loc[list(top_indices)]
+
+    # Convert p-values to -log10 scale for visualization
+    df_log_p = -np.log10(df_filtered)
+
+    # Create a heatmap
+    fig, ax = plt.subplots(figsize=_figsize, dpi=_dpi)
+    sns.heatmap(df_log_p, cmap=cmap, cbar_kws={'label': '-log10(p-value)'}, linewidths=0.5)
+    plt.title(title, fontsize=_title_fontsize)
+    plt.xlabel('Group', fontsize=_fontsize)
+    plt.ylabel('Motif', fontsize=_fontsize)
+
+    # Save or display the figure
+    _utils.savefig_or_show("enrichment", show=show, save=save)
+    plt.show()
+
+    return fig, ax

@@ -514,5 +514,46 @@ def plot_volcano(adata: ad.AnnData,
             plt.annotate(gene_name, (results_df.loc[results_df['names'] == top_sig_genes[i], log2_fc_col].values[0],
                                     results_df.loc[results_df['names'] == top_sig_genes[i], '-log10_pvalue'].values[0]),
                         fontsize=8)
+    # Save and show figure
+    _utils.savefig_or_show("volcano", show=show, save=save)
+    return None
     
+def plot_motif(
+    enrich_matrix,
+    pval_threshold = 5e-7,
+    top_n = 10,
+    figsize=(6,4),
+    fontsize=None, 
+    dpi=None,
+    show=None, save=None, title=None, cmap='OrRd',**kwargs):
+    # 设置过滤阈值，假设过滤掉 p-value 大于 5e-7 的 TF
+         # Use provided parameters or global settings
+    _figsize = figsize if figsize is not None else plt.rcParams["figure.figsize"]
+    _fontsize = fontsize if fontsize is not None else plt.rcParams["font.size"]
+    _dpi = dpi if dpi is not None else plt.rcParams["figure.dpi"]
+    _title_fontsize= _fontsize * 1.1
+
+    df_filtered = enrich_matrix[enrich_matrix.min(axis=1) < pval_threshold]
+
+    # 如果过滤后为空，则直接退出
+    if df_filtered.empty:
+        raise ValueError(f"Warning: No motifs passed the p-value threshold - {pval_threshold}.")
+    # 选择每列 p-value 最小的前 10 个索引
+    top_indices = set()
+    for col in df_filtered.columns:
+        n = min(top_n, len(df_filtered))  # 确保不会超出可选范围
+        top_indices.update(df_filtered.nsmallest(n, col).index)
+    # **转换 set 为 list 以便正确索引**
+    df_filtered = df_filtered.loc[list(top_indices)]
+    # 对 p-value 取 -log10
+    df_log_p = -np.log10(df_filtered)
+    # 绘制热图
+    # Create the volcano plot
+    plt.figure(figsize=_figsize, dpi=int(_dpi))
+    sns.heatmap(df_log_p, cmap=cmap, cbar_kws={'label': '-log10(p-value)'}, linewidths=0.5)
+    plt.title('Motif Enrichment Heatmap', fontsize=_title_fontsize)
+    plt.xlabel('Group', fontsize=_fontsize)
+    plt.ylabel('Motif', fontsize=_fontsize)
+    _utils.savefig_or_show("enrichment", show=show, save=save)
     plt.show()
+    return None

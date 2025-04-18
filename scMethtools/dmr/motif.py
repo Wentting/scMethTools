@@ -1,7 +1,7 @@
 import tempfile
 import os
 import pyfaidx
-import tqdm
+from tqdm import tqdm
 import numpy as np
 import pandas as pd
 from glob import glob
@@ -11,6 +11,7 @@ import re
 import scanpy as sc
 from anndata import AnnData
 from scipy.stats import fisher_exact
+from scMethtools.get import *
 
 PWM_DIR = '/p300s/baoym_group/zongwt/zongwt/motifs' #需要修改为自己的PWM文件路径
 PWM_suffix = 'jaspar'
@@ -18,7 +19,7 @@ PWM_suffix = 'jaspar'
 
 def get_motif_hits(peak_sequences_file, num_peaks, pvalue_threshold = 0.00005):
 
-    print('Scanning peaks for motif hits with p >= {} ...'.format(str(pvalue_threshold)))
+    print(f'Scanning peaks for motif hits with p >= {str(pvalue_threshold)} ...')
 
     motifs_directory = PWM_DIR
     matrix_list = [
@@ -32,7 +33,7 @@ def get_motif_hits(peak_sequences_file, num_peaks, pvalue_threshold = 0.00005):
         '-p', str(pvalue_threshold), 
         '--batch']
 
-    print.info('Building motif background models ...')
+    print('Building motif background models ...')
     process = subprocess.Popen(
         ' '.join(command), 
         stdout=subprocess.PIPE, 
@@ -53,7 +54,7 @@ def get_motif_hits(peak_sequences_file, num_peaks, pvalue_threshold = 0.00005):
             break
         else:
             if i == 0:
-                print.info('Starting scan ...')
+                print('Starting scan ...')
             i+=1
 
             peak_num, motif, hit_pos, strand, score, site, snp = line.decode().strip().split(',')
@@ -63,18 +64,18 @@ def get_motif_hits(peak_sequences_file, num_peaks, pvalue_threshold = 0.00005):
             scores.append(float(score))
 
             if i%1000000 == 0:
-                print.info('Found {} motif hits ...'.format(str(i)))
+                print(f'Found {i} motif hits ...')
 
     if not process.poll() == 0:
         raise Exception('Error while scanning for motifs: ' + process.stderr.read().decode())
 
-    print.info('Formatting hits matrix ...')
+    print('Formatting hits matrix ...')
     return sparse.coo_matrix((scores, (peak_indices, motif_indices)), 
         shape = (num_peaks, len(motif_matrices))).tocsr().T.tocsr()
     
 
 
-def motif_scan(adata, regions, genome, pvalue_threshold = 0.00005):
+def motif_scan(adata, genome, regions=None, pvalue_threshold = 0.00005):
     """_summary_
 
     Args:
@@ -90,6 +91,9 @@ def motif_scan(adata, regions, genome, pvalue_threshold = 0.00005):
     temp_fasta = tempfile.NamedTemporaryFile(delete = False)
     temp_fasta_name = temp_fasta.name
     temp_fasta.close()
+    
+    if regions is None:
+        regions = get_var(adata)
 
     try:
 
@@ -142,10 +146,10 @@ def get_region_sequences(peaks, genome_fasta, output_file):
             except KeyError:
                 peak_sequence = 'N'*(int(end) - int(start))
 
-            print('>{idx}\n{sequence}'.format(
-                    idx = str(i),
-                    sequence = peak_sequence.upper()
-                ), file = f, end=  '\n')
+            # print('>{idx}\n{sequence}'.format(
+            #         idx = str(i),
+            #         sequence = peak_sequence.upper()
+            #     ), file = f, end=  '\n')
     
     return None
 
@@ -173,7 +177,7 @@ def featch_dmr(adata,group=None,key_added='rank_genes_groups',chrom='chromosome'
     Example:
     regions = featch_dmr(adata,group='0')
     """
-    regions = sc.get.rank_genes_groups_df(adata, group=group, key=key_added,**kwargs)
+    regions = sc.get.rank_genes_groups_df(adata, group=group, key=key_added, **kwargs)
     try:
         return adata.var.loc[regions['names'],[chrom, start, end]].values  # 直接返回 ndarray
     except KeyError:
@@ -181,7 +185,7 @@ def featch_dmr(adata,group=None,key_added='rank_genes_groups',chrom='chromosome'
     
 # #计算每一种细胞类型的差异DMR中富集的TF
 
-def motif_enrichment(adata, key_added='rank_genes_groups', group=None):
+def motif_enrichment(adata, key_added='rank_genes_groups', direction='all', groups=None,**kwargs):
     """
     calculate the enrichment of TF in DMRs of each cell type
 
@@ -206,18 +210,18 @@ def motif_enrichment(adata, key_added='rank_genes_groups', group=None):
     # 从 adata.uns 中获取 motif ID 和 TF 名称
     motif_ids = adata.uns["motif_analysis"]["motif_ids"]
     tf_names = adata.uns["motif_analysis"]["motif_factors"]
-    if group is None:
+    if groups is None:
         group_list = list(adata.uns[key_added]['names'].dtype.names)
     else:
-        # 确保 groups 是列表格式
-        if isinstance(group, str):
-            group_list = [group]  # 如果是字符串，转换成列表
+        if isinstance(groups, (list, str)):
+            group_list = groups if isinstance(groups, list) else [groups]
     # Store results in dictionaries
     enrichment_results = {}
     for g in group_list:
         print(f'Calculating enrichment for group {g} ...')
         #计算group的dmr列表的富集情况
-        dmr_names = adata.uns[key_added]['names'][g].tolist()
+        dmr_regions = get_group_dmr(adata,key_added=key_added,direction=direction,groups=g,**kwargs)
+        dmr_names = dmr_regions[g]
         # 有一种可能，存放的不是dmr,而是所有的region，他没有进行过滤
         # 获取在 `adata.var.index` 中的索引
         gene_idx = adata.var.index.get_indexer(dmr_names)
@@ -243,8 +247,8 @@ def motif_enrichment(adata, key_added='rank_genes_groups', group=None):
         #enrichment_results[g] = {'pval': pvals, 'stat': test_statistics}
         # Convert results to DataFrame
     
-    # Store results for the current group
-    enrichment_results[g] = {'pval': pvals, 'stat': test_statistics}
+        # Store results for the current group
+        enrichment_results[g] = {'pval': pvals, 'stat': test_statistics}
     # Convert results to DataFrame
     # df_pvals = pd.DataFrame({g: enrichment_results[g]['pval'] for g in group_list}, index=tf_names)
     # df_stats = pd.DataFrame({g: enrichment_results[g]['stat'] for g in group_list}, index=tf_names)
@@ -256,7 +260,3 @@ def motif_enrichment(adata, key_added='rank_genes_groups', group=None):
         adata.uns['motif_enrichment'] = {}  # 初始化为空字典或其他数据结构
     adata.uns['motif_enrichment'][key_added]= df_pvals
     return df_pvals
-
-
-    
-    
