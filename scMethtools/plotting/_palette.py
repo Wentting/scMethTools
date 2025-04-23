@@ -64,6 +64,8 @@ additional_colors = {
     'plum3': '#cd96cd', 'palevioletred3': '#cd6889'
 }
 
+new_colors = ["#c792ea",  "#98bde7",  "#bc4041","#cdda73", "#dcc66b",  "#a86d38", "#5b74b8", "#ece54d", "#5c5b9c","#DBC3D7"]
+
 # These palettes were lifted from scanpy.plotting.palettes
 custom_palettes = {
     10: [
@@ -245,6 +247,14 @@ def palette()->list:
         sc_color: List containing the hex codes as values.
     """ 
     return sc_color
+def zong_palette()->list:
+    """
+    Returns a dictionary of colors for various plots used in pyomic package.
+
+    Returns:
+        sc_color: List containing the hex codes as values.
+    """ 
+    return new_colors
 
 def red_palette()->list:
     """

@@ -35,4 +35,4 @@ omics="""
   ####   ####  #    #   #   #    #   #    ####   ####  ######  ####                                                
 """
 print(omics)
-print(f'Version: {__version__}, Tutorials: https://ngdc.cncb.ac.cn/methbank/scm')
+print(f'Version: {__version__}, Tutorials: https://wentting.github.io/scMethQ/')
