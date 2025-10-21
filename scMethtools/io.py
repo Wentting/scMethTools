@@ -118,16 +118,54 @@ def read_meta(
     sample_list = pd.read_csv(path + '/' + meta_name, sep=',').loc[:, prefix].unique().tolist()
     return sample_list
 
-def read_annotation_bed(annotation_file,keep_other_columns=True):
+def read_annotation_bed(annotation_file, chrom_col=None, start_col=None, end_col=None, name_col=None, keep_other_columns=True):
+    """
+    Read a BED file and optionally specify columns for chromosome, start, end, and name.
+    
+    Args:
+        annotation_file (str): Path to the BED file
+        chrom_col (int, optional): Index of chromosome column, default 0
+        start_col (int, optional): Index of start position column, default 1
+        end_col (int, optional): Index of end position column, default 2
+        name_col (int, optional): Index of annotation name column, default None (generate "chr:start-end")
+        keep_other_columns (bool, optional): Whether to keep other columns (not used currently)
+        
+    Returns:
+        dict: {chromosome: set((start, end, name))}
+    """
     annotation_dict = {}
+    
+    # Default column indices
+    chrom_col = 0 if chrom_col is None else chrom_col
+    start_col = 1 if start_col is None else start_col
+    end_col = 2 if end_col is None else end_col
+
     with open(annotation_file, 'r') as features:
         for line in features:
+            if not line.strip():
+                continue
             ar = line.strip().split()
-            chromosome, start, end = ar[0], int(ar[1]), int(ar[2])
+            
+            try:
+                chromosome = ar[chrom_col]
+                start = int(ar[start_col])
+                end = int(ar[end_col])
+            except (IndexError, ValueError):
+                raise ValueError(f"Cannot parse line: {line.strip()}")
+            
+            # Name column
+            if name_col is not None and len(ar) > name_col:
+                name = ar[name_col]
+            else:
+                name = f"{chromosome}:{start}-{end}"
+            
             if chromosome not in annotation_dict:
                 annotation_dict[chromosome] = set()
-            annotation_dict[chromosome].add((start, end))
+            
+            annotation_dict[chromosome].add((start, end, name))
+    
     return annotation_dict
+
 
 def read_bed(filename, sort=False, usecols=[0, 1, 2], *args, **kwargs):
     """

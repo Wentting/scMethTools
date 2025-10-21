@@ -15,6 +15,8 @@ from .denovo import denovo
 from ._build import import_cells,save_cells,feature_to_scm,features_to_scm
 from .generate_scm import sliding_windows,load_features
 from ._format import format_check
+from ._methylation_reader import read, SingleCellMethylationReader
+from .optimized_methylation_processor import import_cells_optimized,OptimizedMethylationProcessor
 
 __all__ = [
     "generate_scm",

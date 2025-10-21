@@ -221,37 +221,60 @@ def format_check(bed_file, sample_size=10000):
 
 def _custom_format(format_string):
     """
-    Create from user specified string. Adapted from scbs function
-    
-     Args:
-        format_string: e.g chrom:pos:meth:coverage/unmeth:context:sep:header
+    Create column order from user-specified string, compatible with
+    full coverage files or simplified 3-column chr/pos/value files.
+
+    Args:
+        format_string: user-defined string
+            - Full format (7 cols): chrom:pos:meth:coverage/unmeth:context:sep:header
+            - Simplified format (3 cols + sep/header, 5 parts): chrom:pos:value:sep:header
+
+    Returns:
+        CoverageFormat namedtuple:
+            chrom, pos, meth, umeth, context, coverage, sep, header
     """
     try:
-        parts = format_string.lower().split(":")
-        if len(parts) != 7:
-            raise Exception("Invalid number of ':'-separated values in custom input format")
-         # 使用列表推导式简化索引转换
-        indices = [int(p) - 1 for p in parts[:3]]
-        chrom, pos, meth = indices
-         # 使用正则表达式解析coverage/unmeth
+        parts = format_string.strip().split(":")
+        
+        # 检查长度
+        if len(parts) not in (5, 7):
+            raise ValueError(
+                "Invalid format string. Must have either 5 (simplified) or 7 (full) ':'-separated parts."
+            )
+
+        # === 简化三列格式 ===
+        if len(parts) == 5:
+            chrom = int(parts[0]) - 1
+            pos = int(parts[1]) - 1
+            meth = int(parts[2]) - 1  # 使用 value 列代替 meth
+            umeth = None
+            context = None
+            coverage = False
+            sep = "\t" if parts[3].lower() in ("\\t", "tab", "t") else parts[3]
+            header = bool(int(parts[4]))
+            return CoverageFormat(chrom, pos, meth, umeth, context, coverage, sep, header)
+
+        # === 完整七列格式 ===
+        chrom, pos, meth = [int(p) - 1 for p in parts[:3]]
+
         import re
         match = re.match(r'(\d+)([cuCU])', parts[3])
         if not match:
-            raise Exception(
-                "The 4th column of a custom input format must contain an integer and "
-                "either 'c' for coverage or 'u' for unmethylated counts (e.g. '4c'), "
-                f"but you provided '{format_string[3]}'."
+            raise ValueError(
+                f"The 4th column must contain an integer and 'c' or 'u' "
+                f"(e.g. '4c'), but got '{parts[3]}'."
             )
-        umeth, info = match.groups()
-        umeth = int(umeth) - 1 
-        coverage = info == 'c'
-        #umeth = int(format_string[3][0:-1]) - 1
-        context = int(parts[4])-1
+        umeth_idx, info = match.groups()
+        umeth = int(umeth_idx) - 1
+        coverage = info.lower() == 'c'
+        context = int(parts[4]) - 1
         sep = "\t" if parts[5].lower() in ("\\t", "tab", "t") else parts[5]
         header = bool(int(parts[6]))
-        return chrom, pos, meth, umeth, context, coverage, sep, header
+
+        return CoverageFormat(chrom, pos, meth, umeth, context, coverage, sep, header)
+
     except (ValueError, IndexError) as e:
-        raise ValueError(f"Format parsing error : {str(e)}")
+        raise ValueError(f"Format parsing error: {str(e)}")
 
 
 def reorder_columns_by_index(pipeline):

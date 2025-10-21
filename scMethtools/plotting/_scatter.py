@@ -35,7 +35,6 @@ from functools import partial
 from scanpy.plotting import _utils 
 
 from scanpy.plotting._utils import (
-    _IGraphLayout,
     _FontWeight,
     _FontSize,
     ColorLike,
@@ -114,7 +113,7 @@ def embedding(
 ) -> Union[Figure, Axes, None]:
     """\
     Plot categorical and continuous metadata into dimensionality reduction.
-    
+        This function is adapted from scanpy.plotting._scatter.embedding and omicverse.
     """
     #####################
     # Argument handling #

@@ -250,50 +250,88 @@ def filter_features(adata,
     return None
 
 def filter_cells(adata,
-                 min_n_features = None, max_n_features = None,
-                 min_pct_features = None, max_pct_features = None,
-                 min_mc_level =None, max_mc_level =None,
-                 min_n_sites = None,
+                 min_n_features=None, max_n_features=None,
+                 min_pct_features=None, max_pct_features=None,
+                 min_mc_level=None, max_mc_level=None,
+                 min_n_sites=None,
                  assay=None):
-    feature = 'regions'         
-    if('sites' in adata.obs_keys()):
-        n_sites = adata.obs['sites']                
-    if('global_meth_level' in adata.obs_keys()):
+    import numpy as np
+    import scipy.sparse as sp
+
+    feature = 'regions'
+
+    # 获取已有指标或计算
+    if 'sites' in adata.obs_keys():
+        n_sites = adata.obs['sites']
+    else:
+        n_sites = None
+
+    if 'global_meth_level' in adata.obs_keys():
         methylation_level = adata.obs['global_meth_level']
-    if('features_number' in adata.obs_keys()):
+    else:
+        methylation_level = None
+
+    if 'features_number' in adata.obs_keys():
         n_features = adata.obs['features_number']
     else:
         if sp.issparse(adata.X):
             n_features = np.sum(~np.isnan(adata.X.toarray()), axis=1).astype(int)
         else:
             n_features = np.sum(~np.isnan(adata.X), axis=1).astype(int)
-        adata.obs['n_features'] = n_features       
-    if('pct_features' in adata.obs_keys()):
+        adata.obs['n_features'] = n_features
+
+    if 'pct_features' in adata.obs_keys():
         pct_features = adata.obs['pct_features']
     else:
-        pct_features = n_features/adata.shape[1]
-        adata.obs['pct_peaks'] = pct_features           
+        pct_features = n_features / adata.shape[1]
+        adata.obs['pct_features'] = pct_features
 
-    if(sum(list(map(lambda x: x is None,[min_n_features,min_pct_features,min_n_sites,min_mc_level,
-                                         max_n_features,max_pct_features,max_mc_level])))==7):
-        print('No filtering')    
+    # 初始化全 True
+    cell_subset = np.ones(len(adata.obs_names), dtype=bool)
+
+    # 依次应用每个过滤条件
+    if min_n_features is not None:
+        print('filter cells based on min_n_features >=', min_n_features)
+        cell_subset &= n_features >= min_n_features
+
+    if max_n_features is not None:
+        print('filter cells based on max_n_features <=', max_n_features)
+        cell_subset &= n_features <= max_n_features
+
+    if min_pct_features is not None:
+        print('filter cells based on min_pct_features >=', min_pct_features)
+        cell_subset &= pct_features >= min_pct_features
+
+    if max_pct_features is not None:
+        print('filter cells based on max_pct_features <=', max_pct_features)
+        cell_subset &= pct_features <= max_pct_features
+
+    if min_mc_level is not None and methylation_level is not None:
+        print('filter cells based on min_mc_level >=', min_mc_level)
+        cell_subset &= methylation_level >= min_mc_level
+
+    if max_mc_level is not None and methylation_level is not None:
+        print('filter cells based on max_mc_level <=', max_mc_level)
+        cell_subset &= methylation_level <= max_mc_level
+
+    if min_n_sites is not None and n_sites is not None:
+        print('filter cells based on min_n_sites >=', min_n_sites)
+        cell_subset &= n_sites >= min_n_sites
+
+    # 如果没有任何过滤条件
+    if np.all([
+        min_n_features is None, max_n_features is None,
+        min_pct_features is None, max_pct_features is None,
+        min_mc_level is None, max_mc_level is None,
+        min_n_sites is None
+    ]):
+        print('No filtering')
     else:
-        cell_subset = np.ones(len(adata.obs_names),dtype=bool)
-        if(min_n_features!=None):
-            print('filter cells based on min_n_features >= ', min_n_features)
-            cell_subset = (n_features>=min_n_features) & cell_subset
-        if(max_n_features!=None):
-            print('filter cells based on max_n_features <=', max_n_features)
-            cell_subset = (n_features<=max_n_features) & cell_subset
-        if(min_pct_features!=None):
-            print('filter cells based on min_pct_features >= ',min_pct_features)
-            cell_subset = (pct_features>=min_pct_features) & cell_subset
-        if(max_pct_features!=None):
-            print('filter cells based on max_pct_features <= ',max_pct_features)
-            cell_subset = (pct_features<=max_pct_features) & cell_subset
+        # 应用过滤
         adata._inplace_subset_obs(cell_subset)
         print('after filtering out low-quality cells: ')
-        print(str(adata.shape[0])+' cells, ' + str(adata.shape[1])+' '+feature)
+        print(f'{adata.shape[0]} cells, {adata.shape[1]} {feature}')
+
     return None
 
 

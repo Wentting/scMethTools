@@ -354,59 +354,88 @@ def _calculate_region_statistics(chromosome,start,end,sr,mean):
             'sr_var': sr_var
         }
     
-def sliding_windows(window_size, ref=None,step_size=None, chrom_file=None):
+def sliding_windows(window_size, ref=None, step_size=None, chrom_file=None, chrom_size=None):
     """
+    Generate sliding windows across chromosomes with a name for each window.
 
-    :param window_size:
-    :param step_size:
-    :param ref:
-        A Genome object, providing gene annotation and chromosome sizes. ref should be one of `hg38,hg19,mm10,mm9,GRCh37,GRCh38,GRCm39`
-        `genome` has lower priority than `gff_file` and `chrom_size`.
-    :param chrom_file:
-        File name of the gene annotation file in BED or GFF or GTF format.
-        This is required if `ref` is not set.
-        Setting `chrom_file` will override the annotations from the `genome` parameter.
-    :param chrom_size:
-        A dictionary containing chromosome sizes, for example,
-        `{"chr1": 2393, "chr2": 2344, ...}`.
-        This is required if `genome` is not set.
-        Setting `chrom_size` will override the chrom_size from the `genome` parameter.
-    :return:
+    Args:
+        window_size (int): Size of each window.
+        step_size (int, optional): Step size between windows. Defaults to `window_size`.
+        ref (Genome object, optional): Reference genome object providing chromosome sizes.
+        chrom_file (str, optional): Path to chromosome size or gene annotation file (BED, GFF, or GTF).
+        chrom_size (dict, optional): Dictionary of chromosome sizes, e.g., {"chr1": 249250621, "chr2": 243199373}.
+
+    Returns:
+        dict: {chromosome: list of (start, end, name) tuples for each window}
     """
     chrom_size_dict = {}
-    
+
+    # Determine step size
     if step_size is None:
         step_size = window_size
-    if chrom_file is None:
-        if ref is not None:
-            chrom_size_dict = ref.chrom_sizes
+
+    # Determine chromosome sizes
+    if chrom_size is not None:
+        chrom_size_dict = chrom_size
+    elif chrom_file is not None:
+        chrom_size_dict = load_chrom_size_file(chrom_file)
+    elif ref is not None:
+        chrom_size_dict = ref.chrom_sizes
     else:
-        chrom_size_dict = load_chrom_size_file(chrom_file)  # user defined reference, especially for other species
+        raise ValueError("Chromosome sizes must be provided via `chrom_file`, `chrom_size`, or `ref`.")
+
     features_dict = {}
     for chrom, chrom_length in chrom_size_dict.items():
-        bin_start = np.array(list(range(1, chrom_length, step_size)))
+        bin_start = np.arange(1, chrom_length + 1, step_size)
         bin_end = bin_start + window_size - 1
-        bin_end[np.where(bin_end > chrom_length)] = chrom_length
-        chrom_ranges = [(start, end) for start, end in zip(bin_start, bin_end)]
-        features_dict[chrom]= chrom_ranges  
+        bin_end[bin_end > chrom_length] = chrom_length  # Cap the last window to chromosome end
+        chrom_ranges = [(int(start), int(end), f"{chrom}:{int(start)}-{int(end)}")
+                        for start, end in zip(bin_start, bin_end)]
+        features_dict[chrom] = chrom_ranges
+
     return features_dict
 
-def load_features(feature_file,format=None):
-    #TO DO: load features from gtf file or gff file
+
+def load_features(feature_file, format=None, chrom_col=None, start_col=None, end_col=None, name_col=None):
+    """
+    Load features from a BED, GTF, GFF, or CSV file.
+    
+    Args:
+        feature_file (str): Path to the feature file
+        format (str, optional): File format ('bed', 'gtf', 'gff', 'csv'). If None, inferred from file extension
+        chrom_col (int, optional): Chromosome column index (for BED)
+        start_col (int, optional): Start column index (for BED)
+        end_col (int, optional): End column index (for BED)
+        name_col (int, optional): Name column index (for BED)
+    
+    Returns:
+        dict: {chromosome: set((start, end, name))}
+    """
     features_dict = {}
-    if format==None:
-        input_file_format = feature_file[-3:]
-    if input_file_format=="bed":
-        features_dict = read_annotation_bed(feature_file)
-    # elif input_file_format=='gtf':
-    #     features_dict = load_features_gtf(feature_file,feature_type="gene")
-    # elif input_file_format=='gff':
-    #     features_dict = load_features_gff(feature_file,feature_type="gene")
-    # elif input_file_format=='csv':
+    
+    # Infer file format if not specified
+    if format is None:
+        format = feature_file.split('.')[-1].lower()
+    
+    if format == "bed":
+        features_dict = read_annotation_bed(
+            feature_file,
+            chrom_col=chrom_col,
+            start_col=start_col,
+            end_col=end_col,
+            name_col=name_col
+        )
+    # elif format == 'gtf':
+    #     features_dict = load_features_gtf(feature_file, feature_type="gene")
+    # elif format == 'gff':
+    #     features_dict = load_features_gff(feature_file, feature_type="gene")
+    # elif format == 'csv':
     #     features_dict = load_features_csv(feature_file)
     else:
-        raise ValueError("Unsupported file format")
-    return features_dict    
+        raise ValueError(f"Unsupported file format: {format}")
+    
+    return features_dict
+  
 
 
 def _calc_mean_shrunken_residuals(
@@ -424,7 +453,6 @@ def _calc_mean_shrunken_residuals(
     end = min(region_end - 1, chrom_len)
     if start >= chrom_len or start >= end:
         return shrunken_resid, mean_level
-
     # 获取选定区域的行
     selected_rows = data_chrom[start:end + 1, :]
     if selected_rows.nnz == 0:
@@ -651,12 +679,8 @@ def _import_cells_worker(cells, out_dir, context, cpu,chrom_col, pos_col, meth_c
     with ProcessPoolExecutor(max_workers=cpu) as executor:
         process_partial_param = partial(_process_partial, data_path=data_path, context=context, chrom_col=chrom_col, pos_col=pos_col,
                                   meth_col=meth_col, umeth_col=umeth_col, context_col=context_col, cov=cov, sep=sep, header=header)
-        # 使用tqdm显示进度
-        from tqdm import tqdm
-        stat_result = list(tqdm(
-            executor.map(process_partial_param, enumerate(cells)),
-            total=len(cells)
-        ))
+        # 不用tqdm，直接收集结果
+        stat_result = list(executor.map(process_partial_param, enumerate(cells)))
     stat_df = pd.DataFrame(stat_result)
     stat_path = os.path.join(out_dir, "basic_stats.csv")
     stat_df.to_csv(stat_path, index=False)
@@ -968,6 +992,7 @@ def _feature_to_scm_parallel(regions,chrom,output_dir,npz_path,relative,smooth):
         else:
             logg.info(f"...caculate {chrom} methylation level")  
             m,var = _caculate_bins_mean_chrom(npz_path,chrom,regions)
+            return m,var
     except Exception as e:
         print(f"An error occurred: {e}")
 

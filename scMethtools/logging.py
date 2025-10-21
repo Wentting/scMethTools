@@ -121,27 +121,19 @@ m = msg
 
 # TODO: Add docstrings
 def _write_log(*msg, end="\n"):
-    """Write message to log output, ignoring the verbosity level.
-
-    This is the most basic function.
-
-    Parameters
-    ----------
-    msg
-        One or more arguments to be formatted as string. Same behavior as print function.
-    """
+    """Write message to log output (console + optional file)."""
     from .settings import logfile
-    
-    from .settings import log_dir
 
-    if logfile == "":
-        print(*msg, end=end)
-    else:
-        out = ""
-        for s in msg:
-            out += f"{s} "
+    out = " ".join(str(s) for s in msg)
+
+    # 始终打印到控制台
+    print(out, end=end)
+
+    # 如果设置了 logfile，再写到文件
+    if logfile != "":
         with open(logfile, "a") as f:
             f.write(out + end)
+
 
 
 # TODO: Add docstrings

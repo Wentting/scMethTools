@@ -51,13 +51,30 @@ def save_chrom_dict_to_coo(chrom_dict, output_dir, context):
             file.write('\n'.join(lines))
     del chrom_dict
 
-def read_pandas_in_chunks_CG(cell_id,bed_file,out_dir, chrom_col, pos_col, meth_col, umeth_col, context_col, cov, sep, header, chunk_size=100000):
-    stat_dict = {'cell_id': cell_id, 'cell_name': os.path.basename(bed_file).split('.')[0], 'sites': 0, 'meth': 0, 'n_total': 0}
+def read_pandas_in_chunks_CG(cell_id, bed_file, out_dir, chrom_col, pos_col, meth_col, 
+                             umeth_col=None, context_col=None, cov=False, sep='\t', header=False, chunk_size=100000):
+    """
+    Read methylation file in chunks and process CG sites.
+    Compatible with both full coverage and simplified 3-column format.
+    """
+    stat_dict = {'cell_id': cell_id, 'cell_name': os.path.basename(bed_file).split('.')[0], 
+                 'sites': 0, 'meth': 0, 'n_total': 0}
     reduced_cyt = {}
-    use_cols = [chrom_col, pos_col, meth_col, umeth_col, context_col]
-    names = ['chrom','pos', 'context', 'meth', 'umeth']
 
-    dtype = {chrom_col: str, context_col: str}
+    # columns to read
+    use_cols = [chrom_col, pos_col, meth_col]
+    names = ['chrom', 'pos', 'meth']
+    if umeth_col is not None:
+        use_cols.append(umeth_col)
+        names.append('umeth')
+    if context_col is not None:
+        use_cols.append(context_col)
+        names.append('context')
+
+    dtype = {chrom_col: str}
+    if context_col is not None:
+        dtype[context_col] = str
+
     for chunk in pd.read_csv(
         bed_file,
         sep=sep,
@@ -69,36 +86,67 @@ def read_pandas_in_chunks_CG(cell_id,bed_file,out_dir, chrom_col, pos_col, meth_
         chunksize=chunk_size,
         low_memory=False
     ):
-        #print(chunk.head())
-        #这些判断会导致比episcanpy更慢，因为episcanpy完全没有做任何的判断
+        # standardize chrom
         chunk['chrom'] = 'chr' + chunk['chrom'].str.lstrip('chr')
-        chunk = chunk[chunk['context'].str.startswith('CG')]
+
+        # filter CG context if available
+        if context_col is not None:
+            chunk = chunk[chunk['context'].str.startswith('CG')]
         if chunk.empty:
             continue
-        coverage = chunk['umeth'] + (0 if cov else chunk['meth'])
-        meth_ratio = chunk['meth'] / coverage
+
+        # compute meth_ratio
+        if umeth_col is None:  # simplified 3-column format
+            meth_ratio = chunk['meth']
+        else:  # full coverage format
+            coverage = chunk['umeth'] + (0 if not cov else chunk['meth'])
+            meth_ratio = chunk['meth'] / coverage
+
+        # assign meth_value
         meth_value = np.where(meth_ratio >= 0.9, 1, np.where(meth_ratio <= 0.1, -1, 0))
         chunk['meth_value'] = meth_value
+
         for chrom, group in chunk.groupby('chrom'):
-            reduced_cyt.setdefault(chrom, []).extend(zip(group['pos'],  [cell_id] * len(group), group['meth_value']))
+            reduced_cyt.setdefault(chrom, []).extend(zip(group['pos'], [cell_id]*len(group), group['meth_value']))
 
         stat_dict['sites'] += len(chunk)
         stat_dict['meth'] += np.sum(meth_value == 1)
-        stat_dict['n_total'] += coverage.sum()
-        #save_chrom_dict_to_coo(reduced_cyt, output_dir, cell_id) 把save写到这里就慢多了
+        if umeth_col is None:
+            stat_dict['n_total'] += len(chunk)  # simplified: each site counts as 1
+        else:
+            stat_dict['n_total'] += coverage.sum()
+
     stat_dict['global_meth_level'] = stat_dict['meth'] / stat_dict['sites'] if stat_dict['sites'] else 0
-    save_chrom_dict_to_coo(reduced_cyt, out_dir, 'CG')#这样就变快了
-    #这个coo文件到底是为了干什么
-    #应该是为了算smooth平滑值，要不然没有办法算所有文件的平滑值
+    save_chrom_dict_to_coo(reduced_cyt, out_dir, 'CG')
     return stat_dict
 
 
-def read_pandas_in_chunks_nonCG(cell_id, bed_file, out_dir, chrom_col, pos_col, meth_col, umeth_col, context_col, cov, sep, header, chunk_size=100000):
-    stat_dict = {'cell_id': cell_id, 'cell_name': os.path.basename(bed_file).split('.')[0], 'sites': 0, 'meth': 0, 'n_total': 0}
+
+def read_pandas_in_chunks_nonCG(cell_id, bed_file, out_dir, chrom_col, pos_col, meth_col,
+                                umeth_col=None, context_col=None, cov=False, sep='\t', header=False,
+                                chunk_size=100000):
+    """
+    Read methylation file in chunks and process non-CG sites.
+    Compatible with both full coverage and simplified 3-column format.
+    """
+    stat_dict = {'cell_id': cell_id, 'cell_name': os.path.basename(bed_file).split('.')[0],
+                 'sites': 0, 'meth': 0, 'n_total': 0}
     reduced_cyt = {}
-    use_cols = [chrom_col, pos_col, meth_col, umeth_col, context_col]
-    names = ['chrom', 'pos', 'meth', 'umeth','context']
-    dtype = {chrom_col: str, context_col: str}
+
+    # columns to read
+    use_cols = [chrom_col, pos_col, meth_col]
+    names = ['chrom', 'pos', 'meth']
+    if umeth_col is not None:
+        use_cols.append(umeth_col)
+        names.append('umeth')
+    if context_col is not None:
+        use_cols.append(context_col)
+        names.append('context')
+
+    dtype = {chrom_col: str}
+    if context_col is not None:
+        dtype[context_col] = str
+
     for chunk in pd.read_csv(
         bed_file,
         sep=sep,
@@ -110,24 +158,40 @@ def read_pandas_in_chunks_nonCG(cell_id, bed_file, out_dir, chrom_col, pos_col, 
         chunksize=chunk_size,
         low_memory=False
     ):
-        # print(chunk.head())
+        # standardize chrom
         chunk['chrom'] = 'chr' + chunk['chrom'].str.lstrip('chr')
-        chunk = chunk[~chunk['context'].isin(['CGG', 'CGC', 'CGA', 'CGT', 'CGN', 'CG', 'CpG'])]
+
+        # filter non-CG sites if context available
+        if context_col is not None:
+            chunk = chunk[~chunk['context'].isin(['CGG', 'CGC', 'CGA', 'CGT', 'CGN', 'CG', 'CpG'])]
         if chunk.empty:
             continue
-        coverage = chunk['umeth'] + (0 if cov else chunk['meth'])
-        meth_ratio = chunk['meth'] / coverage
+
+        # compute meth_ratio
+        if umeth_col is None:  # simplified 3-column format
+            meth_ratio = chunk['meth']
+        else:  # full coverage format
+            coverage = chunk['umeth'] + (0 if not cov else chunk['meth'])
+            meth_ratio = chunk['meth'] / coverage
+
+        # assign meth_value
         meth_value = np.where(meth_ratio >= 0.9, 1, np.where(meth_ratio <= 0.1, -1, 0))
         chunk['meth_value'] = meth_value
+
         for chrom, group in chunk.groupby('chrom'):
-            reduced_cyt.setdefault(chrom, []).extend(zip(group['pos'],  [cell_id] * len(group), group['meth_value']))
+            reduced_cyt.setdefault(chrom, []).extend(zip(group['pos'], [cell_id] * len(group), group['meth_value']))
 
         stat_dict['sites'] += len(chunk)
         stat_dict['meth'] += np.sum(meth_value == 1)
-        stat_dict['n_total'] += coverage.sum()
+        if umeth_col is None:
+            stat_dict['n_total'] += len(chunk)  # simplified: each site counts as 1
+        else:
+            stat_dict['n_total'] += coverage.sum()
+
     stat_dict['global_meth_level'] = stat_dict['meth'] / stat_dict['sites'] if stat_dict['sites'] else 0
-    save_chrom_dict_to_coo(reduced_cyt, out_dir, 'nonCG')#这样就变快了
+    save_chrom_dict_to_coo(reduced_cyt, out_dir, 'nonCG')
     return stat_dict
+
 
 def _process_partial(cell,context,data_path,**args):
     """ 
@@ -234,49 +298,264 @@ def matrix_npz_worker(file, tmp_path, npz_path, output_dir, smooth):
     chrom = os.path.basename(file).split('_')[0]
     coo_file = os.path.join(tmp_path, file)
     try:
-        # 使用生成器读取和处理文件，减少内存使用
-        with open(coo_file, 'r') as f:
-            valid_lines = ((int(row), int(col), int(val)) for line in f if line.count('\t') == 2 for row, col, val in [line.split('\t')])
-            rows, cols, data = zip(*valid_lines) if valid_lines else ([], [], [])
-        if not data:
-            return
-        csr_matrix_result = sparse.csr_matrix((data, (rows, cols)))
-        sparse.save_npz(os.path.join(npz_path, f"{chrom}.npz"), csr_matrix_result)
-        logg.info(f"...saving sparse matrix at {npz_path}")
+        # 1. 先估算文件大小，决定处理方式
+        file_size = os.path.getsize(coo_file)
+        large_file = file_size > 1e9  # 如果文件超过1GB，采用分块处理
+        
+        if large_file:
+            print(f"{chrom} with {file_size}, using _process_large")
+            # 对大文件采用分块处理
+            return _process_large_coo_file(coo_file, chrom, npz_path, output_dir, smooth)
+        else:
+            print(f"{chrom} with {file_size}, using _process_small")
+            # 小文件直接处理
+            return _process_small_coo_file(coo_file, chrom, npz_path, output_dir, smooth)
+            
+    except Exception as e:
+        import traceback
+        logg.error(f"Error in processing {file}: {e}")
+        logg.error(traceback.format_exc())
+        # 返回错误状态，方便外部检查
+        return (chrom, False, str(e))
+
+def _process_small_coo_file(coo_file, chrom, npz_path, output_dir, smooth):
+    """处理较小的COO文件，可以一次性读入内存"""
+    try:
+        # 使用numpy直接读取文件更高效
+        import numpy as np
+        from scipy import sparse
+        
+        # 读取并解析数据
+        data_array = np.loadtxt(coo_file, delimiter='\t', dtype=np.int32)
+        if data_array.size == 0 or len(data_array.shape) < 2:
+            logg.warning(f"No valid data in {coo_file}")
+            return (chrom, True, "No data")
+            
+        # 构建稀疏矩阵
+        rows, cols, data = data_array[:, 0], data_array[:, 1], data_array[:, 2]
+        csr_matrix = sparse.csr_matrix((data, (rows, cols)))
+        
+        # 保存矩阵
+        npz_file = os.path.join(npz_path, f"{chrom}.npz")
+        sparse.save_npz(npz_file, csr_matrix)
+        logg.info(f"Saved matrix for {chrom}")
+        
+        # 清理内存
+        del data_array, rows, cols, data, csr_matrix
+        
+        # 执行平滑处理
         if smooth:
             _smoothing_chrom_fast(chrom, npz_path, output_dir)
+        
+        return (chrom, True, "Success")
     except Exception as e:
-        logg.error(f"Error in processing {file}: {e}")
-def save_cells(tmp_path, output_dir, cpu=10, smooth=False, exclude_chrom=None, keep_tmp=True):
+        logg.error(f"Error in _process_small_coo_file for {chrom}: {e}")
+        return (chrom, False, str(e))
+
+def _process_large_coo_file(coo_file, chrom, npz_path, output_dir, smooth):
+    """分块处理大型COO文件"""
+    try:
+        import numpy as np
+        from scipy import sparse
+        import gc
+        
+        # 先计算矩阵维度
+        max_row = 0
+        max_col = 0
+        with open(coo_file, 'r') as f:
+            for i, line in enumerate(f):
+                if i % 1000000 == 0:  # 每百万行记录一次进度
+                    logg.info(f"Scanning dimensions for {chrom}: {i} lines processed")
+                if line.count('\t') == 2:
+                    try:
+                        row, col, _ = map(int, line.strip().split('\t'))
+                        max_row = max(max_row, row + 1)
+                        max_col = max(max_col, col + 1)
+                    except ValueError:
+                        continue
+        
+        logg.info(f"Matrix dimensions for {chrom}: {max_row} x {max_col}")
+        
+        # 分块读取文件
+        chunk_size = 5000000  # 每块行数
+        temp_files = []
+        
+        with open(coo_file, 'r') as f:
+            chunk_counter = 0
+            while True:
+                # 读取一个数据块
+                rows = []
+                cols = []
+                data = []
+                
+                for _ in range(chunk_size):
+                    line = f.readline()
+                    if not line:
+                        break
+                    if line.count('\t') == 2:
+                        try:
+                            row, col, val = map(int, line.strip().split('\t'))
+                            rows.append(row)
+                            cols.append(col)
+                            data.append(val)
+                        except ValueError:
+                            continue
+                
+                if not rows:  # 文件读完了
+                    break
+                    
+                # 为当前块创建稀疏矩阵
+                chunk_matrix = sparse.csr_matrix(
+                    (data, (rows, cols)), 
+                    shape=(max_row, max_col)
+                )
+                
+                # 保存临时文件
+                temp_file = os.path.join(npz_path, f"{chrom}_chunk_{chunk_counter}.npz")
+                sparse.save_npz(temp_file, chunk_matrix)
+                temp_files.append(temp_file)
+                
+                logg.info(f"Saved chunk {chunk_counter} for {chrom}")
+                chunk_counter += 1
+                
+                # 清理内存
+                del rows, cols, data, chunk_matrix
+                gc.collect()
+        
+        # 合并所有临时文件
+        if temp_files:
+            # 对于非常大的矩阵，分批合并
+            logg.info(f"Merging {len(temp_files)} chunks for {chrom}")
+            final_matrix = None
+            
+            for i, temp_file in enumerate(temp_files):
+                if i % 5 == 0:  # 记录进度
+                    logg.info(f"Merging chunk {i}/{len(temp_files)} for {chrom}")
+                    
+                chunk = sparse.load_npz(temp_file)
+                
+                if final_matrix is None:
+                    final_matrix = chunk
+                else:
+                    # 合并稀疏矩阵
+                    final_matrix = final_matrix + chunk
+                
+                # 删除临时文件并清理内存
+                os.remove(temp_file)
+                del chunk
+                gc.collect()
+            
+            # 保存最终矩阵
+            if final_matrix is not None:
+                npz_file = os.path.join(npz_path, f"{chrom}.npz")
+                sparse.save_npz(npz_file, final_matrix)
+                logg.info(f"Saved final matrix for {chrom}")
+                
+                # 清理内存
+                del final_matrix
+                gc.collect()
+            
+            # 执行平滑处理
+            if smooth:
+                _smoothing_chrom_fast(chrom, npz_path, output_dir)
+            
+            return (chrom, True, f"Success with {chunk_counter} chunks")
+        else:
+            logg.warning(f"No valid data for {chrom}")
+            return (chrom, True, "No data")
+            
+    except Exception as e:
+        import traceback
+        logg.error(f"Error in _process_large_coo_file for {chrom}: {e}")
+        logg.error(traceback.format_exc())
+        return (chrom, False, str(e))
+        
+def save_cells(tmp_path, output_dir, cpu=10, smooth=True, exclude_chrom=None, keep_tmp=True):
     """
     read coo file and save csr matrix in npz format
-
-    Args:
-        tmp_path (_type_): _description_
-        output_dir (_type_): _description_
-        cpu (int, optional): _description_. Defaults to 10.
-        smooth (bool, optional): _description_. Defaults to True.
-        exclude_chrom (_type_, optional): _description_. Defaults to None.
-        keep_tmp (bool, optional): _description_. Defaults to True.
     """
-    make_dir(output_dir)
+
+    
+
     file_list = [f for f in os.listdir(tmp_path) if f.endswith(".coo")]
+
     if exclude_chrom is None:
-        exclude_chrom = []    
-    npz_path = os.path.join(output_dir, "data")
-    make_dir(npz_path)
+        exclude_chrom = []
         
-    with concurrent.futures.ProcessPoolExecutor(max_workers=cpu) as executor:
-        futures = [executor.submit(matrix_npz_worker, file, tmp_path, npz_path, output_dir, smooth)
-                   for file in file_list if os.path.basename(file).split('_')[0] not in exclude_chrom]
-        concurrent.futures.wait(futures)
+    # 筛选需要处理的文件
+    to_process = []
+    for file in file_list:
+        chrom = os.path.basename(file).split('_')[0]
+        if chrom not in exclude_chrom:
+            to_process.append(file)    
+         
+    npz_path = os.path.join(output_dir, "data")
+    if not os.path.exists(npz_path):
+        os.makedirs(npz_path)
+
+    
+    logg.info(f"...saving sparse matrix at {npz_path}")
+    
+    #根据染色体文件大小排序，先处理小文件
+    to_process.sort(key=lambda f: os.path.getsize(os.path.join(tmp_path, f)))
+    # 限制同时运行的进程数量 - 对于大文件，单次只允许1-2个进程
+    concurrent_limit = max(1, min(5, cpu // 3))  # 最多使用CPU数的1/3，最少1个，最多3个
+    # 限制并发进程数，避免内存溢出
+    # 估算每个进程可能需要的内存
+    logg.info(f"Using {concurrent_limit} concurrent processes based on available memory")
+    
+    
+    # 记录结果
+    results = {}
+    
+    # 批量处理文件
+    with ProcessPoolExecutor(max_workers=concurrent_limit) as executor:
+        # 先处理小文件
+        futures = {}
+        for file in to_process:
+            chrom = os.path.basename(file).split('_')[0]
+            # 检查结果文件是否已存在
+            if os.path.exists(os.path.join(npz_path, f"{chrom}.npz")):
+                logg.info(f"Skipping {chrom}, output already exists")
+                results[chrom] = True
+                continue
+                
+            futures[executor.submit(matrix_npz_worker, file, tmp_path, npz_path, output_dir, smooth)] = chrom
+        
+        # 处理结果
+        for future in concurrent.futures.as_completed(futures):
+            chrom = futures[future]
+            try:
+                success = future.result()
+                results[chrom] = success
+                if success:
+                    logg.info(f"Successfully processed {chrom}")
+                else:
+                    logg.error(f"Failed to process {chrom}")
+            except Exception as e:
+                logg.error(f"Exception processing {chrom}: {e}")
+                results[chrom] = False
+    
+    # 报告结果
+    processed = sum(1 for s in results.values() if s)
+    failed = sum(1 for s in results.values() if not s)
+    logg.info(f"Processing complete: {processed} succeeded, {failed} failed")
+    
+    # 列出失败的染色体
+    if failed > 0:
+        failed_chroms = [c for c, s in results.items() if not s]
+        logg.error(f"Failed chromosomes: {', '.join(failed_chroms)}")
+    
+    # 清理临时文件
     if not keep_tmp:
         for file in file_list:
-            os.remove(os.path.join(tmp_path, file))
+            try:
+                os.remove(os.path.join(tmp_path, file))
+            except Exception as e:
+                logg.warning(f"Failed to remove temp file {file}: {e}")
 
 #generate methylation matrix step after import and feature reading
 def feature_to_scm(feature,output_dir,out_file,npz_path=None, cpu=10,relative=True,smooth=False,copy=False,meta=None):
-    #feature_to_scm(feature=features[feature_index],output_dir=npz_path,out_file=fn,cpu=cpu,relative=relative,smooth=smooth,copy=True,meta=meta_df)
     """
     generate one anndata object with one feature methylation matrix
 
@@ -312,12 +591,75 @@ def feature_to_scm(feature,output_dir,out_file,npz_path=None, cpu=10,relative=Tr
             )
     pool.close()
     pool.join()
-    # Combine the results into a final list using the zip function.
-    final_result = [sum(combined, []) for combined in zip(*[res.get() for res in result])]
-    #result list: residual(optional),mean,var
-    adata = construct_anndata(final_result, meta=meta, output_dir=output_dir, out_file=out_file, copy=copy)
-    logg.info(f"## anndata saved at {output_dir}")
-    return adata
+    
+     # safely collect results, handle failed tasks
+    successful_results = []
+    failed_chroms = []
+    for i, res in enumerate(result):
+        chrom_name = list(feature.keys())[i]  # get corresponding chromosome name
+        try:
+            # try to get result, set timeout to avoid infinite waiting
+            chrom_result = res.get(timeout=None)
+            if chrom_result is None:
+                logg.warn(f"Chromosome {chrom} returned None, skipping.")
+                continue
+            successful_results.append(chrom_result)
+            logg.info(f"Successfully processed chromosome: {chrom_name}")
+        except Exception as e:
+            # record failed chromosome and error information
+            failed_chroms.append(chrom_name)
+            logg.warn(f"Failed to process chromosome {chrom_name}: {str(e)}")
+            continue
+    
+    # check if there are successful results
+    if not successful_results:
+        error_msg = f"All chromosomes failed to process. Failed chromosomes: {failed_chroms}"
+        logg.error(error_msg)
+        raise RuntimeError(error_msg)
+    
+    # if there are some failed, record warning information
+    if failed_chroms:
+        logg.warn(f"The following chromosomes failed and were excluded from analysis: {failed_chroms}")
+        logg.info(f"Successfully processed {len(successful_results)} out of {len(result)} chromosomes")
+    
+    # Combine the successful results into a final list using the zip function.
+    # Combine the successful results into a final list
+    try:
+        meth_list, mean_list, var_list = [], [], []
+
+        for r in successful_results:
+            # unpack safely
+            if len(r) == 3:
+                meth, mean, var = r
+            elif len(r) == 2:
+                meth = None  # 占位，没有 residual
+                mean, var = r
+            else:
+                raise ValueError(f"Unexpected result length: {len(r)}")
+
+            # extend lists safely
+            if meth is not None:
+                meth_list.extend(meth)
+            mean_list.extend(mean)
+            var_list.append(var)  # var 一定存在
+
+        # 合并 var
+        var_df = pd.concat(var_list)
+
+        final_result = [meth_list, mean_list, var_df]
+
+        # construct anndata
+        adata = construct_anndata(final_result, meta=meta, output_dir=output_dir, out_file=out_file, copy=copy)
+        logg.info(f"## anndata saved at {output_dir}")
+        return adata
+
+    except Exception as e:
+        logg.error(f"Failed to construct anndata: {str(e)}")
+        raise
+
+
+
+
     
 def features_to_scm(features,feature_names,output_dir,out_file,cpu=10,npz_path=None,meta_df=None,smooth=False,relative=True,copy=True):
     """
@@ -379,42 +721,34 @@ def features_to_scm(features,feature_names,output_dir,out_file,cpu=10,npz_path=N
 
         
 def construct_anndata(final_result, meta=None, output_dir="./", out_file="output", copy=False, set_X="mean"):
-        # 解析 final_result
+    # 解析 final_result
     if len(final_result) == 2:
-        mean_matrix, var = final_result
+        mean_matrix, var_df = final_result
         residual_matrix = None
     else:
-        residual_matrix, mean_matrix, var = final_result
+        residual_matrix, mean_matrix, var_df = final_result
 
-    # 构建 mean 和 residual 的稀疏矩阵
     mean_csr = sparse.csr_matrix(mean_matrix, dtype='float32')
     residual_csr = sparse.csr_matrix(residual_matrix, dtype='float32') if residual_matrix is not None else None
 
-    # 构建 var（features）
-    var_df = pd.DataFrame(var)
-    var_df['index'] = var_df['chromosome'] + ':' + var_df['start'].astype(str) + '-' + var_df['end'].astype(str)
-    var_df.set_index('index', inplace=True)
-
-    # 构建 AnnData，注意 .X 默认使用 mean 或 residual
     X = residual_csr.T if (set_X == 'residual' and residual_csr is not None) else mean_csr.T
     adata = ad.AnnData(X=X, obs=meta, var=var_df) if meta is not None else ad.AnnData(X=X, var=var_df)
 
-    # 加入其他 layer
-    adata.layers['mean'] = mean_csr.T
+    # adata.layers['mean'] = mean_csr.T
     if residual_csr is not None:
         adata.layers['relative'] = residual_csr.T
-    # 设置 .raw 为 mean（可选）
-    adata.raw = adata.copy()
+    #adata.raw = adata.copy()
 
     set_workdir(adata, workdir=output_dir)
     if not out_file.endswith('.h5ad'):
         out_file += '.h5ad'
-
     adata.write(os.path.join(output_dir, out_file))
 
-    # 返回
     if copy:
         return adata
+    
+    del mean_csr, residual_csr
+    return None
     
             
             

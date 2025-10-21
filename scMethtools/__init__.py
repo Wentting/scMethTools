@@ -25,14 +25,7 @@ from .plotting._palette import palette,red_palette,blue_palette,green_palette,pu
 
 import scanpy as sc
 
-name = "scmat"
-omics="""
- ####   ####  #    # ##### #    # #####  ####   ####  #       ####  
- #      #    # ##  ##   #   #    #   #   #    # #    # #      #      
-  ####  #      # ## #   #   ######   #   #    # #    # #       ####  
-      # #      #    #   #   #    #   #   #    # #    # #           # 
- #    # #    # #    #   #   #    #   #   #    # #    # #      #    # 
-  ####   ####  #    #   #   #    #   #    ####   ####  ######  ####                                                
-"""
+name = "scmethtools"
+omics=""""""
 print(omics)
-print(f'Version: {__version__}, Tutorials: https://wentting.github.io/scMethQ/')
+print(f'{name} Version: {__version__}, Tutorials: https://wentting.github.io/scMethQ/')

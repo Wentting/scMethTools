@@ -245,27 +245,32 @@ def df_to_pyranges(
     return pr.PyRanges(df)
 
 
-def parse_gtf(gtf,gene_type="protein_coding"):
+def parse_gtf(gtf, gene_type="protein_coding"):
     print("... Loading gene references")
-    genes = BedTool(gtf)
-    # 从基因参考集中筛选出蛋白编码基因
-    coding = []
-    print(f"... {gene_type} gene will be annotated.")
-    for x in genes:
-        if 'chr' not in x[0]:
-        # 如果第一列中不包含'chr'，则添加'chr'到第一列
-            x[0] = 'chr' + x[0]
-        if gene_type == 'all':
-            if x[2] == 'gene':
-                coding.append(x)
-        else:
-            if 'gene_type' in x[-1]:
-                if np.logical_and(x['gene_type'] == gene_type, x[2] == 'gene'):
-                    coding.append(x)
-            if 'gene_biotype' in x[-1]:
-                if np.logical_and(x['gene_biotype'] == gene_type, x[2] == 'gene'):
-                    coding.append(x)
-    coding = BedTool(coding)
+    
+    # 使用pandas读取GTF文件会更快
+    import pandas as pd
+    
+    # 直接在BedTool初始化时进行筛选
+    if gene_type == 'all':
+        # 只筛选gene行
+        genes = BedTool(gtf).filter(lambda x: x[2] == 'gene')
+    else:
+        # 同时筛选gene类型和基因类型
+        genes = BedTool(gtf).filter(
+            lambda x: x[2] == 'gene' and 
+            (f'gene_type "{gene_type}"' in x[8] or 
+             f'gene_biotype "{gene_type}"' in x[8])
+        )
+    
+    # 批量处理chromosome名称
+    def add_chr_prefix(interval):
+        if not interval.chrom.startswith('chr'):
+            interval.chrom = 'chr' + interval.chrom
+        return interval
+    
+    coding = genes.each(add_chr_prefix)
+    
     print("... Done")
     return coding
 

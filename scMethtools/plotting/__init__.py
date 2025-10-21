@@ -14,3 +14,4 @@ from ._profile import profile
 from .basic import grouped_value_boxplot,stacked_plot,propotion,get_colors_from_adata,set_colors,plot_volcano
 from .enrichment import plot_enrichment,plot_motif
 from .heatmap import heatmap,dmr_heatmap
+from .plot_stat import plot_qc,plot_qc_pc,hist_cutoff_pct,cat_plot,grouped_boxplot

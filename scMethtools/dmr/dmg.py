@@ -12,7 +12,6 @@ from sklearn.metrics import roc_auc_score
 import matplotlib.pylab as plt
 from multiprocessing import Pool
 import seaborn as sns
-from PyComplexHeatmap import *
 import logging
 from ..preprocessing.get_df import dmr_df
 from typing import Union, Iterable
@@ -249,45 +248,46 @@ def dmr_clusters_in_parallel(adata, obs_dim, cluster_list, top_n=100, method="wi
 # df_row 是 1onRest 一对多分析的差异基因组
 # df_col 是meta表中的数据组
 # data 是热图中的数据
-def plot_dmr_heatmap(adata, dmr_df, obs_dim):
-    if isinstance(adata.X, np.ndarray):
-        # 如果 adata.X 是 numpy.ndarray，则进行转换
-        data_df = pd.DataFrame(adata.X, index=adata.obs.index, columns=adata.var.index)
-    else:
-        # 如果 adata.X 不是 numpy.ndarray，返回原始数据
-        return adata.X
-    # 差异基因列表
-    df_row = dmr_df.sort_values('cluster')
-    df_col = adata.obs[obs_dim].sort_index()
-    groups = adata.obs[obs_dim].tolist()
-    # 获取Seaborn的颜色调色盘，可以根据需要选择不同的调色盘
-    colors = sns.color_palette("tab20", len(groups))
-    # 创建分组颜色字典
-    col_colors_dict = {group: color for group, color in zip(groups, colors)}
+# def plot_dmr_heatmap(adata, dmr_df, obs_dim):
+#     from PyComplexHeatmap import *
+#     if isinstance(adata.X, np.ndarray):
+#         # 如果 adata.X 是 numpy.ndarray，则进行转换
+#         data_df = pd.DataFrame(adata.X, index=adata.obs.index, columns=adata.var.index)
+#     else:
+#         # 如果 adata.X 不是 numpy.ndarray，返回原始数据
+#         return adata.X
+#     # 差异基因列表
+#     df_row = dmr_df.sort_values('cluster')
+#     df_col = adata.obs[obs_dim].sort_index()
+#     groups = adata.obs[obs_dim].tolist()
+#     # 获取Seaborn的颜色调色盘，可以根据需要选择不同的调色盘
+#     colors = sns.color_palette("tab20", len(groups))
+#     # 创建分组颜色字典
+#     col_colors_dict = {group: color for group, color in zip(groups, colors)}
 
-    col_ha = HeatmapAnnotation(label=anno_label(df_col, merge=True, rotation=90, extend=True,
-                                                colors=col_colors_dict, adjust_color=True, luminance=0.75,
-                                                relpos=(0.5, 0)),  # fontsize=10
-                               Group=anno_simple(df_col, colors=col_colors_dict),  # legend_kws={'fontsize':4}
-                               verbose=0, axis=1)
+#     col_ha = HeatmapAnnotation(label=anno_label(df_col, merge=True, rotation=90, extend=True,
+#                                                 colors=col_colors_dict, adjust_color=True, luminance=0.75,
+#                                                 relpos=(0.5, 0)),  # fontsize=10
+#                                Group=anno_simple(df_col, colors=col_colors_dict),  # legend_kws={'fontsize':4}
+#                                verbose=0, axis=1)
 
-    row_ha = HeatmapAnnotation(
-        Group=anno_simple(df_row['cluster'], legend=True,
-                          colors=col_ha.annotations[1].color_dict),
-        verbose=0, axis=0, plot_legend=False)  # label_kws={'rotation':90,'rotation_mode':'anchor','color':'black'}
+#     row_ha = HeatmapAnnotation(
+#         Group=anno_simple(df_row['cluster'], legend=True,
+#                           colors=col_ha.annotations[1].color_dict),
+#         verbose=0, axis=0, plot_legend=False)  # label_kws={'rotation':90,'rotation_mode':'anchor','color':'black'}
 
-    plt.figure(figsize=(12, 10))
-    # print(data.loc[df_col.index.tolist(),df_row.index.tolist()])
-    cm = ClusterMapPlotter(data=data_df.loc[df_col.index.tolist(), df_row.index.tolist()].T,
-                           top_annotation=col_ha, left_annotation=row_ha,
-                           row_cluster=True, col_cluster=True,
-                           label='beta', row_dendrogram=False, legend_gap=7,
-                           # row_split=df_row.Group,col_split=df_col.Group,
-                           # row_split_gap=0.2,col_split_gap=0.1
-                           # row_split_order=df_row.Group.unique().tolist(),
-                           # col_split_order=df_row.Group.unique().tolist(),
-                           cmap='parula', rasterized=True)
-    plt.show()
+#     plt.figure(figsize=(12, 10))
+#     # print(data.loc[df_col.index.tolist(),df_row.index.tolist()])
+#     cm = ClusterMapPlotter(data=data_df.loc[df_col.index.tolist(), df_row.index.tolist()].T,
+#                            top_annotation=col_ha, left_annotation=row_ha,
+#                            row_cluster=True, col_cluster=True,
+#                            label='beta', row_dendrogram=False, legend_gap=7,
+#                            # row_split=df_row.Group,col_split=df_col.Group,
+#                            # row_split_gap=0.2,col_split_gap=0.1
+#                            # row_split_order=df_row.Group.unique().tolist(),
+#                            # col_split_order=df_row.Group.unique().tolist(),
+#                            cmap='parula', rasterized=True)
+#     plt.show()
 
 
 

@@ -65,7 +65,7 @@ def _caculate_mean_chrom(npz_path,chrom,regions):
         _type_: _description_
     """
     mean_bins = []
-    region_mtx = []
+    region_stats = []
     try:
         # Load the sparse matrix for the specified chromosome
         csr_matrix_chrom = sparse.load_npz(os.path.join(npz_path, f"{chrom}.npz"))
@@ -74,21 +74,28 @@ def _caculate_mean_chrom(npz_path,chrom,regions):
         return [],[]
       
     chrom_len, n_cells = csr_matrix_chrom.shape
-    for region_start, region_end in regions: #annotation regions 
-        #print("annotation-region",region_start,'-',region_end)
-        #返回值不是元组，而是两个独立的列表。因此，在调用 _calc_mean_shrunken_residuals 函数时，只能使用一个变量来接收返回值
-        #mean_shrunk_resid, mean_level = _calc_mean_shrunken_residuals
-        result = _calMean(
+    for region in regions: #annotation regions 
+        if len(region) == 2:
+            region_start, region_end = region
+            region_name = f"{chrom}:{region_start}-{region_end}"
+        else:
+            region_start, region_end, *additional_info = region
+            region_name = additional_info[0] if additional_info else f"{chrom}:{region_start}-{region_end}"        
+        mean_arr = _calMean(
             csr_matrix_chrom,
             region_start,
             region_end,
             n_cells,
             chrom_len,
         )
-        mean_bins.append(result)
+        mean_bins.append(mean_arr)
         #统计var
-        region_mtx.append(_calVar(chrom,region_start,region_end,sr=None,mean=result))
-    return mean_bins,region_mtx
+        var_dict = _calVar(chrom, region_start, region_end, sr=None, mean=mean_arr)
+        var_dict['name'] = region_name
+        region_stats.append(var_dict)
+    var_df = pd.DataFrame(region_stats)
+    var_df.set_index('name', inplace=True)
+    return mean_bins,var_df
 
 def _calMean(data_chrom,region_start, region_end,n_cells, chrom_len,):
     mean_level = np.full(n_cells, np.nan)
@@ -169,40 +176,40 @@ def _calcRMean(
     mean_level[valid_obs_mask] = np.round(cell_sums[valid_obs_mask] / n_obs[valid_obs_mask], 3)
     return shrunken_resid, mean_level
 
-def _caculate_relative_mean_chrom(npz_path,chromosome,regions,smooth_dict):
+def _caculate_relative_mean_chrom(npz_path,chrom,regions,smooth_dict):
     meth_shrunken_bins = []
     mean_bins = []
-    region_mtx = []  
+    region_stats = []  
     try:
-        data_chrom = sparse.load_npz(os.path.join(npz_path, f"{chromosome}.npz"))
+        data_chrom = sparse.load_npz(os.path.join(npz_path, f"{chrom}.npz"))
     except FileNotFoundError:
         secho("Warning: ", fg="red", nl=False)
         echo(
-            f"Couldn't load methylation data for chromosome {chromosome} at {npz_path} "
+            f"Couldn't load methylation data for chromosome {chrom} at {npz_path} "
         )
         data_chrom = None
     chrom_len, n_cells = data_chrom.shape
     for region in regions:#annotation regions 
         if len(region) == 2:
             region_start, region_end = region
+            region_name = f"{chrom}:{region_start}-{region_end}"
         else:
             region_start, region_end, *additional_info = region
-        #print("annotation-region",region_start,'-',region_end)
-        #返回值不是元组，而是两个独立的列表。因此，在调用 _calc_mean_shrunken_residuals 函数时，只能使用一个变量来接收返回值
-        #mean_shrunk_resid, mean_level = _calc_mean_shrunken_residuals
-        result = _calcRMean(
-            data_chrom,
-            region_start,
-            region_end,
-            smooth_dict,
-            n_cells,
-            chrom_len
+            region_name = additional_info[0] if additional_info else f"{chrom}:{region_start}-{region_end}"
+
+        shrunken_resid, mean_arr = _calcRMean(
+            data_chrom, region_start, region_end, smooth_dict, n_cells, chrom_len
         )
-    
-        meth_shrunken_bins.append(result[0])
-        mean_bins.append(result[1])
-        #统计var
-        region_mtx.append(_calVar(chromosome,region_start,region_end,result[0],result[1]))
-    return meth_shrunken_bins,mean_bins,region_mtx
+
+        meth_shrunken_bins.append(shrunken_resid)
+        mean_bins.append(mean_arr)
+
+        var_dict = _calVar(chrom, region_start, region_end, sr=shrunken_resid, mean=mean_arr)
+        var_dict['name'] = region_name
+        region_stats.append(var_dict)
+
+    var_df = pd.DataFrame(region_stats)
+    var_df.set_index('name', inplace=True)
+    return meth_shrunken_bins, mean_bins, var_df
 
  
