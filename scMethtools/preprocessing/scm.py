@@ -621,5 +621,75 @@ def load_layers(adata,layers='counts'):
     print('......The X of adata have been loaded from {}'.format(layers))
     return adata
 
+def updata_var(adata):
+    """
+    Recalculate statistical parameters in var matrix
+    - covered_cell, var, mean, pct_cell: calculated from adata.X
+    - sr_var: calculated from adata.layers['relative']
+    """
+    import numpy as np
+    import scipy.sparse as sp
+    
+    print("Recalculating var matrix statistical parameters...")
+    print(f"Current data shape: {adata.shape}")
+    
+    # 1. Calculate basic statistical parameters from adata.X
+    print("Calculating basic statistical parameters from adata.X...")
+    
+    if sp.issparse(adata.X):
+        x_dense = adata.X.toarray()
+    else:
+        x_dense = adata.X
+    
+    # Calculate covered_cell (number of cells covering each feature)
+    n_cells = np.sum(~np.isnan(x_dense), axis=0).astype(int)
+    adata.var['covered_cell'] = n_cells
+    
+    # Calculate mean (average value of each feature)
+    feature_mean = np.nanmean(x_dense, axis=0)
+    adata.var['mean'] = feature_mean
+    
+    # Calculate pct_cell (percentage of cells covering each feature)
+    pct_cells = n_cells / adata.shape[0]
+    adata.var['pct_cell'] = pct_cells
+    
+    # Calculate var (variance of each feature)
+    feature_var = np.nanvar(x_dense, axis=0)
+    adata.var['var'] = feature_var
+    
+    # 2. Calculate sr_var from adata.layers['relative']
+    print("Calculating sr_var from adata.layers['relative']...")
+    
+    if 'relative' in adata.layers:
+        relative_matrix = adata.layers['relative']
+        if sp.issparse(relative_matrix):
+            relative_dense = relative_matrix.toarray()
+        else:
+            relative_dense = relative_matrix
+        
+        # Calculate sr_var for each feature
+        sr_var_values = np.nanvar(relative_dense, axis=0)
+        adata.var['sr_var'] = sr_var_values
+        print("✓ Successfully recalculated sr_var from adata.layers['relative']")
+    else:
+        print("Warning: adata.layers['relative'] not found, cannot calculate sr_var")
+        # If no relative layer, set to NaN
+        adata.var['sr_var'] = np.nan
+        print("sr_var set to NaN")
+    
+    # Check calculation results
+    print("\nStatistical parameter calculation completed:")
+    print(f"  covered_cell: min={n_cells.min()}, max={n_cells.max()}, mean={n_cells.mean():.2f}")
+    print(f"  mean: min={feature_mean.min():.4f}, max={feature_mean.max():.4f}")
+    print(f"  pct_cell: min={pct_cells.min():.4f}, max={pct_cells.max():.4f}")
+    print(f"  var: min={feature_var.min():.4f}, max={feature_var.max():.4f}")
+    
+    if 'relative' in adata.layers:
+        print(f"  sr_var: min={sr_var_values.min():.4f}, max={sr_var_values.max():.4f}")
+    else:
+        print("  sr_var: not calculated")
+    
+    return adata
+
 
 

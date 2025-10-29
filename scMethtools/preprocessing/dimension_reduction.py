@@ -158,9 +158,9 @@ def tsne(adata, use_rep='X_pca',
     adata.obsm['X_tsne'] = Z
     return
 
-def umap(adata):
+def umap(adata,**kwargs):
     import scanpy as sc
-    sc.tl.umap(adata)
+    sc.tl.umap(adata,**kwargs)
     
 def tsne_method(X: np.ndarray,
                 metric: Union[str, Callable] = "euclidean",
@@ -308,7 +308,6 @@ def getNClusters(adata,n_cluster,range_min=0,range_max=3,max_steps=20):
     
     print('Cannot find the number of clusters')
     print('Clustering solution from last iteration is used:' + str(this_clusters) + ' at resolution ' + + str(this_resolution))
-
 
 def hvm_basic(adata,n_features=None):
     print(adata.shape)

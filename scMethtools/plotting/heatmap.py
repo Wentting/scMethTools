@@ -745,7 +745,8 @@ def _prepare_dataframe(
     """
 
     adata._sanitize()
-    use_raw = _utils._check_use_raw(adata, use_raw)
+    # use_raw = _utils._check_use_raw(adata, use_raw)
+    use_raw = adata.raw is not None and (use_raw is True)
     if layer is not None:
         use_raw = False
     if isinstance(var_names, str):
